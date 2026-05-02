@@ -142,6 +142,23 @@ export default async function(ctx) {
     return isp;
   };
 
+  // 获取对应国家Emoji的辅助函数
+  const getFlagEmoji = (country) => {
+    if (!country) return "🌐";
+    if (country.includes("中国")) return "🇨🇳";
+    if (country.includes("日本")) return "🇯🇵";
+    if (country.includes("美国")) return "🇺🇸";
+    if (country.includes("香港")) return "🇭🇰";
+    if (country.includes("台湾")) return "🇹🇼";
+    if (country.includes("澳门")) return "🇲🇴";
+    if (country.includes("新加坡")) return "🇸🇬";
+    if (country.includes("韩国")) return "🇰🇷";
+    if (country.includes("英国")) return "🇬🇧";
+    if (country.includes("德国")) return "🇩🇪";
+    if (country.includes("法国")) return "🇫🇷";
+    return "📍"; 
+  };
+
   let lIp = "获取失败", lLoc = "未知位置", lIsp = "未知运营商";
   try {
     const lRes = await ctx.http.get('https://myip.ipip.net/json', { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 3000 });
@@ -149,17 +166,20 @@ export default async function(ctx) {
     if (body?.data) {
       lIp = body.data.ip || "获取失败";
       const locArr = body.data.location || [];
-      lLoc = `🇨🇳 ${locArr[1] || ""} ${locArr[2] || ""}`.trim() || "未知位置";
+      const country = locArr[0] || ""; // 提取国家
+      lLoc = `${getFlagEmoji(country)} ${locArr[1] || ""} ${locArr[2] || ""}`.trim() || "未知位置";
       lIsp = fmtISP(locArr[4] || locArr[3]);
     }
   } catch (e) {}
+  
   if (lIp === "获取失败") {
     try {
       const res126 = await ctx.http.get('https://ipservice.ws.126.net/locate/api/getLocByIp', { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 3000 });
       const body126 = JSON.parse(await res126.text());
       if (body126?.result) {
         lIp = body126.result.ip;
-        lLoc = `🇨🇳 ${body126.result.province || ""} ${body126.result.city || ""}`.trim();
+        const country = body126.result.country || ""; // 提取国家
+        lLoc = `${getFlagEmoji(country)} ${body126.result.province || ""} ${body126.result.city || ""}`.trim();
         lIsp = fmtISP(body126.result.operator || body126.result.company);
       }
     } catch (e) {}
