@@ -58,9 +58,6 @@ export default async function(ctx) {
   function jp(s) { try { return JSON.parse(s); } catch (e) { return null; } }
   function ti(v) { const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; }
 
-  // =========================
-  // 第一部分：流媒体与AI解锁检测 (左侧)
-  // =========================
   async function checkChatGPT() {
     try {
       const headRes = await getRaw("https://chatgpt.com", { "User-Agent": BASE_UA }, { redirect: 'manual' });
@@ -103,7 +100,7 @@ export default async function(ctx) {
       if (res.status === 403) return "Cross";
       const body = await res.text();
       if (body.includes("App unavailable") || body.includes("unsupported_country")) return "Cross";
-      return "OK"; // Claude doesn't easily expose region, OK means accessible
+      return "OK";
     } catch (e) { return "Cross"; }
   }
 
@@ -157,15 +154,12 @@ export default async function(ctx) {
     } catch (e) { return "Cross"; }
   }
 
-  // =========================
-  // 第二部分：风控与安全检测 (右侧)
-  // =========================
   async function checkTG() {
     try {
       const res = await getRaw('https://core.telegram.org', null, { timeout: 3000 });
       if (res && res.status === 200) return { status: "大概率正常", col: C_GREEN };
       return { status: "可能受限", col: C_ORANGE };
-    } catch(e) { return { status: "大概率正常", col: C_GREEN }; } // 默认宽容
+    } catch(e) { return { status: "大概率正常", col: C_GREEN }; }
   }
 
   async function checkProxy(ip) {
@@ -206,7 +200,7 @@ export default async function(ctx) {
         if (m) pct = Number(m[1]) * 100;
       }
       let val = pct.toFixed(2) + '%';
-      if (val === '0.00%') val = '0.01%'; // 适配极低概率
+      if (val === '0.00%') val = '0.01%';
       return { status: val, col: pct > 5 ? C_RED : (pct > 1 ? C_ORANGE : C_GREEN), riskScore: pct };
     } catch(e) { return { status: "获取失败", col: C_SUB, riskScore: 0 }; }
   }
@@ -217,13 +211,10 @@ export default async function(ctx) {
       const res = await getRaw(`https://ip.net.coffee/api/ip/`, null, { timeout: 3000 });
       const j = JSON.parse(await res.text());
       if (j && j.trust !== undefined) return { status: `信任 ${j.trust}`, col: j.trust >= 80 ? C_GREEN : C_ORANGE };
-      return { status: "信任 100", col: C_GREEN }; // 安全兜底
+      return { status: "信任 100", col: C_GREEN };
     } catch(e) { return { status: "信任 100", col: C_GREEN }; }
   }
 
-  // =========================
-  // 第三部分：基础环境与并发执行
-  // =========================
   const fmtISP = (isp) => {
     if (!isp) return "未知";
     const s = String(isp).toLowerCase();
@@ -246,13 +237,11 @@ export default async function(ctx) {
     return "📍";
   };
 
-  // 1. 获取本地与落地IP (并发)
   let lIp = "获取失败", lLoc = "未知位置", lIsp = "未知运营商";
   let nIp = "获取失败", nLoc = "未知位置", nativeText = "未知";
   let ippureData = { status: "未知", col: C_SUB, riskScore: 0 };
 
   await Promise.all([
-    // 本地 IP
     (async () => {
       try {
         const lRes = await ctx.http.get('https://myip.ipip.net/json', { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 3000, policy: 'DIRECT' });
@@ -265,7 +254,6 @@ export default async function(ctx) {
         }
       } catch (e) {}
     })(),
-    // 落地 IP 与 IPPure
     (async () => {
       try {
         const res = await ctx.http.get('https://my.ippure.com/v1/info', withPolicy({ timeout: 4000 }));
@@ -292,7 +280,6 @@ export default async function(ctx) {
 
   const proxySuccess = nIp !== "获取失败";
 
-  // 2. 解锁状态与风控检测 (全量并发)
   let gptStatus="Cross", geminiStatus="Cross", claudeStatus="Cross", youtubeStatus="Cross", netflixStatus="Cross", tiktokStatus="Cross";
   let tgData={status:"未知",col:C_SUB}, ipapiData={status:"未知",col:C_SUB}, proxyData={status:"未知",col:C_SUB}, blackboxData={status:"未知",col:C_SUB}, netCoffeeData={status:"未知",col:C_SUB};
 
@@ -306,9 +293,6 @@ export default async function(ctx) {
     ]);
   }
 
-  // =========================
-  // 第四部分：UI 组件构建
-  // =========================
   const totalRiskScore = Math.round((ippureData.riskScore || 0) + (ipapiData.riskScore || 0) + (proxyData.riskScore || 0));
   const topRiskTxt = `风险 ${totalRiskScore}`;
   const topRiskCol = totalRiskScore === 0 ? C_GREEN : (totalRiskScore > 30 ? C_RED : C_ORANGE);
@@ -371,10 +355,7 @@ export default async function(ctx) {
     gap: 3,
     backgroundColor: BG_COLOR,
     children: [
-      // 头部 Header
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 6,
         children: [
-          { type: 'text', text: `数据中心 (DCH)`, font: { size: 13, weight: 'heavy' }, textColor: C_TITLE },
-          {
-            type: 'stack', direction: 'row', alignItems: 'center', gap:
+          { type: 'text', text: `数据中心 (DCH)`, font: { size: 13, weight: '
