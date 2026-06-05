@@ -1,51 +1,40 @@
+// =========================
+// 环境变量策略组
+// 名称：POLICY
+// 值：你的策略组名字 (Egern会传进来)
+// =========================
 export default async function(ctx) {
-  // =========================
-  // 环境变量策略组
-  // 名称：POLICY
-  // 值：你的策略组名字 (Egern会传进来)
-  // =========================
   const policy = ctx.env.POLICY || "";
-  const widgetFamily = ctx.widgetFamily || 'systemMedium';
-  const BG_COLOR = { light: '#FFFFFF', dark: '#1C1C1E' };
-  const C_TITLE = { light: '#1A1A1A', dark: '#FFD700' };
-  const C_SUB = { light: '#666666', dark: '#B0B0B0' };
-  const C_MAIN = { light: '#1A1A1A', dark: '#FFFFFF' };
-  const C_GREEN = { light: '#32D74B', dark: '#32D74B' };
-  const C_YELLOW = { light: '#FFD60A', dark: '#FFD60A' };
-  const C_ORANGE = { light: '#FF9500', dark: '#FF9500' };
-  const C_RED = { light: '#FF3B30', dark: '#FF3B30' };
-  const C_ICON = { light: '#007AFF', dark: '#0A84FF' };
+  const widgetFamily = ctx.widgetFamily || "systemMedium";
+  const BG_COLOR = { light: "#FFFFFF", dark: "#1C1C1E" };
+  const C_TITLE = { light: "#1A1A1A", dark: "#FFD700" };
+  const C_SUB = { light: "#666666", dark: "#B0B0B0" };
+  const C_MAIN = { light: "#1A1A1A", dark: "#FFFFFF" };
+  const C_GREEN = { light: "#32D74B", dark: "#32D74B" };
+  const C_YELLOW = { light: "#FFD60A", dark: "#FFD60A" };
+  const C_ORANGE = { light: "#FF9500", dark: "#FF9500" };
+  const C_RED = { light: "#FF3B30", dark: "#FF3B30" };
+  const C_ICON = { light: "#007AFF", dark: "#0A84FF" };
 
-  if (['systemSmall', 'accessoryCircular', 'accessoryInline', 'accessoryRectangular'].includes(widgetFamily)) {
+  if (widgetFamily === "systemSmall" || widgetFamily.includes("accessory")) {
     return {
-      type: 'widget',
+      type: "widget",
       padding: 16,
       backgroundColor: BG_COLOR,
       children: [
-        { type: 'text', text: '请使用中号或大号组件', font: { size: 'callout' }, textColor: C_MAIN, textAlign: 'center' }
+        { type: "text", text: "请使用中号或大号组件", font: { size: "callout" }, textColor: C_MAIN, textAlign: "center" }
       ]
     };
   }
 
   const BASE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
-  function withPolicy(opts = {}) {
-    if (policy && policy !== "DIRECT") opts.policy = policy;
-    return opts;
-  }
-
-  async function get(url, headers) {
-    const opts = withPolicy({ timeout: 6000 });
-    if (headers) opts.headers = headers;
-    const res = await ctx.http.get(url, opts);
-    return await res.text();
-  }
-
-  async function post(url, body, headers) {
-    const opts = withPolicy({ timeout: 6000, body });
-    if (headers) opts.headers = headers;
-    const res = await ctx.http.post(url, opts);
-    return await res.text();
+  function withPolicy(opts) {
+    const options = opts || {};
+    if (policy && policy !== "DIRECT") {
+      options.policy = policy;
+    }
+    return options;
   }
 
   async function getRaw(url, headers, extraOpts) {
@@ -55,12 +44,30 @@ export default async function(ctx) {
     return await ctx.http.get(url, opts);
   }
 
-  function jp(s) { try { return JSON.parse(s); } catch (e) { return null; } }
-  function ti(v) { const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; }
+  async function get(url, headers) {
+    const res = await getRaw(url, headers);
+    return await res.text();
+  }
+
+  async function post(url, body, headers) {
+    const opts = withPolicy({ timeout: 5000, body: body });
+    if (headers) opts.headers = headers;
+    const res = await ctx.http.post(url, opts);
+    return await res.text();
+  }
+
+  function jp(s) {
+    try { return JSON.parse(s); } catch (e) { return null; }
+  }
+
+  function ti(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : null;
+  }
 
   async function checkChatGPT() {
     try {
-      const headRes = await getRaw("https://chatgpt.com", { "User-Agent": BASE_UA }, { redirect: 'manual' });
+      const headRes = await getRaw("https://chatgpt.com", { "User-Agent": BASE_UA }, { redirect: "manual" });
       const webAccessible = !!headRes;
       const iosRes = await getRaw("https://ios.chat.openai.com", { "User-Agent": BASE_UA });
       const iosBody = iosRes ? await iosRes.text() : "";
@@ -83,11 +90,9 @@ export default async function(ctx) {
   async function checkGemini() {
     try {
       const bodyRaw = 'f.req=[["K4WWud","[[0],[\\"en-US\\"]]",null,"generic"]]';
-      const txt = await post('https://gemini.google.com/_/BardChatUi/data/batchexecute', bodyRaw, { "User-Agent": BASE_UA, "Accept-Language": "en-US", "Content-Type": "application/x-www-form-urlencoded" });
+      const txt = await post("https://gemini.google.com/_/BardChatUi/data/batchexecute", bodyRaw, { "User-Agent": BASE_UA, "Accept-Language": "en-US", "Content-Type": "application/x-www-form-urlencoded" });
       if (!txt) return "Cross";
-      let m = txt.match(/"countryCode"\s*:\s*"([A-Z]{2})"/i);
-      if (m && m[1]) return m[1].toUpperCase();
-      m = txt.match(/"requestCountry"\s*:\s*\{[^}]*"id"\s*:\s*"([A-Z]{2})"/i);
+      let m = txt.match(new RegExp('"countryCode"\\s*:\\s*"([A-Z]{2})"'));
       if (m && m[1]) return m[1].toUpperCase();
       return "OK";
     } catch (e) { return "Cross"; }
@@ -96,8 +101,7 @@ export default async function(ctx) {
   async function checkClaude() {
     try {
       const res = await getRaw("https://claude.ai/login", { "User-Agent": BASE_UA });
-      if (!res) return "Cross";
-      if (res.status === 403) return "Cross";
+      if (!res || res.status === 403) return "Cross";
       const body = await res.text();
       if (body.includes("App unavailable") || body.includes("unsupported_country")) return "Cross";
       return "OK";
@@ -106,13 +110,13 @@ export default async function(ctx) {
 
   async function checkYouTube() {
     try {
-      const body = await get('https://www.youtube.com/premium', { "User-Agent": BASE_UA, "Accept-Language": "en" });
+      const body = await get("https://www.youtube.com/premium", { "User-Agent": BASE_UA, "Accept-Language": "en" });
       if (!body) return "Cross";
-      if (body.includes('www.google.cn')) return "CN";
-      const isNotAvailable = body.includes('Premium is not available in your country') || body.includes('YouTube Premium is not available');
-      const m = body.match(/"contentRegion"\s*:\s*"?([A-Z]{2})"?/);
+      if (body.includes("www.google.cn")) return "CN";
+      const isNotAvailable = body.includes("Premium is not available in your country") || body.includes("YouTube Premium is not available");
+      const m = body.match(new RegExp('"contentRegion"\\s*:\\s*"?([A-Z]{2})"?'));
       const region = m && m[1] ? m[1].toUpperCase() : null;
-      const isAvailable = body.includes('ad-free') || body.includes('Ad-free');
+      const isAvailable = body.includes("ad-free") || body.includes("Ad-free");
       if (isNotAvailable) return "Cross";
       if (isAvailable && region) return region;
       if (isAvailable && !region) return "OK";
@@ -128,10 +132,10 @@ export default async function(ctx) {
       const bodies = await Promise.all([ fetchTitle(titles[0]), fetchTitle(titles[1]) ]);
       const t1 = bodies[0]; const t2 = bodies[1];
       if (!t1 && !t2) return "Cross";
-      if (/oh no!/i.test(t1 || "") && /oh no!/i.test(t2 || "")) return "Popcorn";
-      for (let b of [t1, t2]) {
+      if (t1.includes("oh no!") && t2.includes("oh no!")) return "Popcorn";
+      for (const b of [t1, t2]) {
         if (!b) continue;
-        const rm = b.match(/"countryCode"\s*:\s*"?([A-Z]{2})"?/);
+        const rm = b.match(new RegExp('"countryCode"\\s*:\\s*"?([A-Z]{2})"?'));
         if (rm && rm[1]) return rm[1];
       }
       return "OK";
@@ -144,10 +148,11 @@ export default async function(ctx) {
       if (body1 && body1.includes("Please wait...")) {
         try { body1 = await get("https://www.tiktok.com/explore", { "User-Agent": BASE_UA }); } catch (e2) {}
       }
-      let m1 = body1 ? body1.match(/"region"\s*:\s*"([A-Z]{2})"/) : null;
+      const reg = new RegExp('"region"\\s*:\\s*"([A-Z]{2})"');
+      let m1 = body1 ? body1.match(reg) : null;
       if (m1 && m1[1]) return m1[1];
       const body2 = await get("https://www.tiktok.com/", { "User-Agent": BASE_UA, "Accept-Language": "en" });
-      const m2 = body2 ? body2.match(/"region"\s*:\s*"([A-Z]{2})"/) : null;
+      const m2 = body2 ? body2.match(reg) : null;
       if (m2 && m2[1]) return m2[1];
       if (body1 || body2) return "OK";
       return "Cross";
@@ -156,7 +161,7 @@ export default async function(ctx) {
 
   async function checkTG() {
     try {
-      const res = await getRaw('https://core.telegram.org', null, { timeout: 3000 });
+      const res = await getRaw("https://core.telegram.org", null, { timeout: 3000 });
       if (res && res.status === 200) return { status: "大概率正常", col: C_GREEN };
       return { status: "可能受限", col: C_ORANGE };
     } catch(e) { return { status: "大概率正常", col: C_GREEN }; }
@@ -183,8 +188,8 @@ export default async function(ctx) {
       if (!ip || ip === "获取失败") return { status: "未知", col: C_SUB, riskScore: 0 };
       const res = await getRaw(`https://blackbox.ipinfo.app/lookup/${ip}`, null, { timeout: 3000 });
       const txt = (await res.text()).trim();
-      if (txt === 'N') return { status: "正常", col: C_GREEN, riskScore: 0 };
-      if (txt === 'Y') return { status: "异常", col: C_RED, riskScore: 30 };
+      if (txt === "N") return { status: "正常", col: C_GREEN, riskScore: 0 };
+      if (txt === "Y") return { status: "异常", col: C_RED, riskScore: 30 };
       return { status: "未知", col: C_SUB, riskScore: 0 };
     } catch(e) { return { status: "获取失败", col: C_SUB, riskScore: 0 }; }
   }
@@ -196,11 +201,11 @@ export default async function(ctx) {
       const j = JSON.parse(await res.text());
       let pct = 0;
       if (j.company && j.company.abuser_score) {
-        const m = String(j.company.abuser_score).match(/([0-9.]+)/);
+        const m = String(j.company.abuser_score).match(new RegExp("([0-9.]+)"));
         if (m) pct = Number(m[1]) * 100;
       }
-      let val = pct.toFixed(2) + '%';
-      if (val === '0.00%') val = '0.01%';
+      let val = pct.toFixed(2) + "%";
+      if (val === "0.00%") val = "0.01%";
       return { status: val, col: pct > 5 ? C_RED : (pct > 1 ? C_ORANGE : C_GREEN), riskScore: pct };
     } catch(e) { return { status: "获取失败", col: C_SUB, riskScore: 0 }; }
   }
@@ -218,10 +223,10 @@ export default async function(ctx) {
   const fmtISP = (isp) => {
     if (!isp) return "未知";
     const s = String(isp).toLowerCase();
-    if (/移动|mobile|cmcc/i.test(s)) return "中国移动";
-    if (/电信|telecom|chinanet/i.test(s)) return "中国电信";
-    if (/联通|unicom/i.test(s)) return "中国联通";
-    if (/广电|broadcast|cbn/i.test(s)) return "中国广电";
+    if (s.includes("移动") || s.includes("mobile") || s.includes("cmcc")) return "中国移动";
+    if (s.includes("电信") || s.includes("telecom") || s.includes("chinanet")) return "中国电信";
+    if (s.includes("联通") || s.includes("unicom")) return "中国联通";
+    if (s.includes("广电") || s.includes("broadcast") || s.includes("cbn")) return "中国广电";
     return isp;
   };
 
@@ -244,7 +249,7 @@ export default async function(ctx) {
   await Promise.all([
     (async () => {
       try {
-        const lRes = await ctx.http.get('https://myip.ipip.net/json', { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 3000, policy: 'DIRECT' });
+        const lRes = await ctx.http.get("https://myip.ipip.net/json", { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 3000, policy: "DIRECT" });
         const body = JSON.parse(await lRes.text());
         if (body?.data) {
           lIp = body.data.ip || "获取失败";
@@ -256,13 +261,13 @@ export default async function(ctx) {
     })(),
     (async () => {
       try {
-        const res = await ctx.http.get('https://my.ippure.com/v1/info', withPolicy({ timeout: 4000 }));
+        const res = await ctx.http.get("https://my.ippure.com/v1/info", withPolicy({ timeout: 4000 }));
         if (res && res.status === 200) {
           const d = JSON.parse(await res.text());
           nIp = d.ip || "获取失败";
           let code = d.countryCode || "";
-          if (code.toUpperCase() === 'TW') code = 'CN';
-          const flag = code ? String.fromCodePoint(...code.toUpperCase().split('').map(c => 127397 + c.charCodeAt())) : "🌍";
+          if (code.toUpperCase() === "TW") code = "CN";
+          const flag = code ? String.fromCodePoint(...code.toUpperCase().split("").map(c => 127397 + c.charCodeAt())) : "🌍";
           nLoc = `${flag} ${d.country || ""} ${d.city || ""}`.trim() || "未知位置";
           nativeText = d.isResidential === true ? "🏠 住宅宽带" : d.isResidential === false ? "🏢 商业机房" : "未知";
           
@@ -296,31 +301,32 @@ export default async function(ctx) {
   const totalRiskScore = Math.round((ippureData.riskScore || 0) + (ipapiData.riskScore || 0) + (proxyData.riskScore || 0));
   const topRiskTxt = `风险 ${totalRiskScore}`;
   const topRiskCol = totalRiskScore === 0 ? C_GREEN : (totalRiskScore > 30 ? C_RED : C_ORANGE);
-  const topRiskIcon = totalRiskScore === 0 ? 'checkmark.shield.fill' : 'exclamationmark.shield.fill';
+  const topRiskIcon = totalRiskScore === 0 ? "checkmark.shield.fill" : "exclamationmark.shield.fill";
 
   const SMALL_FONT = 10;
   const SMALL_ICON = 12;
 
-  function smallInfoRow(iconName, label, value, valueCol = C_MAIN) {
+  function smallInfoRow(iconName, label, value, valueCol) {
+    const finalCol = valueCol || C_MAIN;
     return {
-      type: 'stack', direction: 'row', alignItems: 'center', gap: 5,
+      type: "stack", direction: "row", alignItems: "center", gap: 5,
       children: [
-        { type: 'image', src: `sf-symbol:${iconName}`, color: C_ICON, width: SMALL_ICON, height: SMALL_ICON },
-        { type: 'text', text: label, font: { size: SMALL_FONT }, textColor: C_SUB },
-        { type: 'spacer' },
-        { type: 'text', text: value, font: { size: SMALL_FONT, weight: 'bold' }, textColor: valueCol, maxLines: 1 }
+        { type: "image", src: `sf-symbol:${iconName}`, color: C_ICON, width: SMALL_ICON, height: SMALL_ICON },
+        { type: "text", text: label, font: { size: SMALL_FONT }, textColor: C_SUB },
+        { type: "spacer" },
+        { type: "text", text: value, font: { size: SMALL_FONT, weight: "bold" }, textColor: finalCol, maxLines: 1 }
       ]
     };
   }
 
   function ItemRow(name, status, color, iconName, iconColor) {
     return {
-      type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
+      type: "stack", direction: "row", alignItems: "center", gap: 4,
       children: [
-        { type: 'image', src: `sf-symbol:${iconName}`, color: iconColor, width: SMALL_ICON, height: SMALL_ICON },
-        { type: 'text', text: name, font: { size: SMALL_FONT, weight: 'medium' }, textColor: C_MAIN },
-        { type: 'spacer' },
-        { type: 'text', text: status, font: { size: SMALL_FONT, weight: 'bold' }, textColor: color, maxLines: 1 }
+        { type: "image", src: `sf-symbol:${iconName}`, color: iconColor, width: SMALL_ICON, height: SMALL_ICON },
+        { type: "text", text: name, font: { size: SMALL_FONT, weight: "medium" }, textColor: C_MAIN },
+        { type: "spacer" },
+        { type: "text", text: status, font: { size: SMALL_FONT, weight: "bold" }, textColor: color, maxLines: 1 }
       ]
     };
   }
@@ -344,51 +350,51 @@ export default async function(ctx) {
   }
 
   const now = new Date();
-  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const isLarge = widgetFamily === 'systemLarge';
+  const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const isLarge = widgetFamily === "systemLarge";
   const WIDGET_PADDING = isLarge ? [10, 12] : [8, 10];
   const COL_GAP = 12;
 
   return {
-    type: 'widget',
+    type: "widget",
     padding: WIDGET_PADDING,
     gap: 3,
     backgroundColor: BG_COLOR,
     children: [
       {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 6,
+        type: "stack", direction: "row", alignItems: "center", gap: 6,
         children: [
-          { type: 'text', text: `数据中心 (DCH)`, font: { size: 13, weight: 'heavy' }, textColor: C_TITLE },
+          { type: "text", text: "数据中心 (DCH)", font: { size: 13, weight: "heavy" }, textColor: C_TITLE },
           {
-            type: 'stack', direction: 'row', alignItems: 'center', gap: 2,
+            type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              { type: 'image', src: `sf-symbol:${topRiskIcon}`, color: topRiskCol, width: 12, height: 12 },
-              { type: 'text', text: topRiskTxt, font: { size: 11, weight: 'bold' }, textColor: topRiskCol }
+              { type: "image", src: `sf-symbol:${topRiskIcon}`, color: topRiskCol, width: 12, height: 12 },
+              { type: "text", text: topRiskTxt, font: { size: 11, weight: "bold" }, textColor: topRiskCol }
             ]
           },
-          { type: 'spacer' },
+          { type: "spacer" },
           {
-            type: 'stack', direction: 'row', alignItems: 'center', gap: 2,
+            type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              { type: 'image', src: 'sf-symbol:exclamationmark.circle.fill', color: C_ORANGE, width: 12, height: 12 },
-              { type: 'text', text: policy || '默认节点', font: { size: 11, weight: 'bold' }, textColor: C_ORANGE, maxLines: 1 }
+              { type: "image", src: "sf-symbol:exclamationmark.circle.fill", color: C_ORANGE, width: 12, height: 12 },
+              { type: "text", text: policy || "默认节点", font: { size: 11, weight: "bold" }, textColor: C_ORANGE, maxLines: 1 }
             ]
           },
-          { type: 'spacer' },
+          { type: "spacer" },
           {
-            type: 'stack', direction: 'row', alignItems: 'center', gap: 2,
+            type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              { type: 'image', src: 'sf-symbol:arrow.clockwise', color: C_SUB, width: 11, height: 11 },
-              { type: 'text', text: timeStr, font: { size: 11 }, textColor: C_SUB }
+              { type: "image", src: "sf-symbol:arrow.clockwise", color: C_SUB, width: 11, height: 11 },
+              { type: "text", text: timeStr, font: { size: 11 }, textColor: C_SUB }
             ]
           }
         ]
       },
       {
-        type: 'stack', direction: 'row', gap: COL_GAP,
+        type: "stack", direction: "row", gap: COL_GAP,
         children: [
           {
-            type: 'stack', direction: 'column', gap: 2.5, flex: 1,
+            type: "stack", direction: "column", gap: 2.5, flex: 1,
             children: [
               smallInfoRow("house.fill", "本地IP:", lIp, C_GREEN),
               smallInfoRow("person.fill", "本地位置:", lLoc),
@@ -396,7 +402,7 @@ export default async function(ctx) {
             ]
           },
           {
-            type: 'stack', direction: 'column', gap: 2.5, flex: 1,
+            type: "stack", direction: "column", gap: 2.5, flex: 1,
             children: [
               smallInfoRow("globe", "落地IP:", nIp, proxySuccess ? C_GREEN : C_RED),
               smallInfoRow("map.fill", "落地位置:", nLoc, proxySuccess ? C_MAIN : C_RED),
@@ -405,12 +411,12 @@ export default async function(ctx) {
           }
         ]
       },
-      { type: 'stack', height: 0.5, backgroundColor: { light: 'rgba(0,0,0,0.08)', dark: 'rgba(255,255,255,0.12)' } },
+      { type: "stack", height: 0.5, backgroundColor: { light: "rgba(0,0,0,0.08)", dark: "rgba(255,255,255,0.12)" } },
       {
-        type: 'stack', direction: 'row', gap: COL_GAP,
+        type: "stack", direction: "row", gap: COL_GAP,
         children: [
           {
-            type: 'stack', direction: 'column', gap: 2, flex: 1,
+            type: "stack", direction: "column", gap: 2, flex: 1,
             children: [
               UnlockRow("GPT", gptStatus),
               UnlockRow("Claude", claudeStatus),
@@ -421,7 +427,7 @@ export default async function(ctx) {
             ]
           },
           {
-            type: 'stack', direction: 'column', gap: 2, flex: 1,
+            type: "stack", direction: "column", gap: 2, flex: 1,
             children: [
               RiskRow("TG 预测", tgData),
               RiskRow("IPPure", ippureData),
