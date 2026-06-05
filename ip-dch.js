@@ -303,8 +303,8 @@ export default async function(ctx) {
   const topRiskCol = totalRiskScore === 0 ? C_GREEN : (totalRiskScore > 30 ? C_RED : C_ORANGE);
   const topRiskIcon = totalRiskScore === 0 ? "checkmark.shield.fill" : "exclamationmark.shield.fill";
 
-  const SMALL_FONT = 10;
-  const SMALL_ICON = 12;
+  const SMALL_FONT = 9.5;
+  const SMALL_ICON = 11;
 
   function smallInfoRow(iconName, label, value, valueCol) {
     const finalCol = valueCol || C_MAIN;
