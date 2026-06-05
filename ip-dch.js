@@ -358,4 +358,81 @@ export default async function(ctx) {
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 6,
         children: [
-          { type: 'text', text: `数据中心 (DCH)`, font: { size: 13, weight: '
+          { type: 'text', text: `数据中心 (DCH)`, font: { size: 13, weight: 'heavy' }, textColor: C_TITLE },
+          {
+            type: 'stack', direction: 'row', alignItems: 'center', gap: 2,
+            children: [
+              { type: 'image', src: `sf-symbol:${topRiskIcon}`, color: topRiskCol, width: 12, height: 12 },
+              { type: 'text', text: topRiskTxt, font: { size: 11, weight: 'bold' }, textColor: topRiskCol }
+            ]
+          },
+          { type: 'spacer' },
+          {
+            type: 'stack', direction: 'row', alignItems: 'center', gap: 2,
+            children: [
+              { type: 'image', src: 'sf-symbol:exclamationmark.circle.fill', color: C_ORANGE, width: 12, height: 12 },
+              { type: 'text', text: policy || '默认节点', font: { size: 11, weight: 'bold' }, textColor: C_ORANGE, maxLines: 1 }
+            ]
+          },
+          { type: 'spacer' },
+          {
+            type: 'stack', direction: 'row', alignItems: 'center', gap: 2,
+            children: [
+              { type: 'image', src: 'sf-symbol:arrow.clockwise', color: C_SUB, width: 11, height: 11 },
+              { type: 'text', text: timeStr, font: { size: 11 }, textColor: C_SUB }
+            ]
+          }
+        ]
+      },
+      {
+        type: 'stack', direction: 'row', gap: COL_GAP,
+        children: [
+          {
+            type: 'stack', direction: 'column', gap: 2.5, flex: 1,
+            children: [
+              smallInfoRow("house.fill", "本地IP:", lIp, C_GREEN),
+              smallInfoRow("person.fill", "本地位置:", lLoc),
+              smallInfoRow("simcard.fill", "本地运营商:", lIsp)
+            ]
+          },
+          {
+            type: 'stack', direction: 'column', gap: 2.5, flex: 1,
+            children: [
+              smallInfoRow("globe", "落地IP:", nIp, proxySuccess ? C_GREEN : C_RED),
+              smallInfoRow("map.fill", "落地位置:", nLoc, proxySuccess ? C_MAIN : C_RED),
+              smallInfoRow("building.2.fill", "原生属性:", nativeText, proxySuccess ? C_MAIN : C_RED)
+            ]
+          }
+        ]
+      },
+      { type: 'stack', height: 0.5, backgroundColor: { light: 'rgba(0,0,0,0.08)', dark: 'rgba(255,255,255,0.12)' } },
+      {
+        type: 'stack', direction: 'row', gap: COL_GAP,
+        children: [
+          {
+            type: 'stack', direction: 'column', gap: 2, flex: 1,
+            children: [
+              UnlockRow("GPT", gptStatus),
+              UnlockRow("Claude", claudeStatus),
+              UnlockRow("Gemini", geminiStatus),
+              UnlockRow("YouTube", youtubeStatus),
+              UnlockRow("奈飞", netflixStatus),
+              UnlockRow("TikTok", tiktokStatus)
+            ]
+          },
+          {
+            type: 'stack', direction: 'column', gap: 2, flex: 1,
+            children: [
+              RiskRow("TG 预测", tgData),
+              RiskRow("IPPure", ippureData),
+              RiskRow("ipapi", ipapiData),
+              RiskRow("NetCoffee", netCoffeeData),
+              RiskRow("Proxy...", proxyData),
+              RiskRow("Blackbox", blackboxData)
+            ]
+          }
+        ]
+      }
+    ]
+  };
+}
