@@ -303,9 +303,8 @@ export default async function(ctx) {
   const topRiskCol = totalRiskScore === 0 ? C_GREEN : (totalRiskScore > 30 ? C_RED : C_ORANGE);
   const topRiskIcon = totalRiskScore === 0 ? "checkmark.shield.fill" : "exclamationmark.shield.fill";
 
-  // 【排版修改区】缩减字号与图标，以适应小组件
-  const SMALL_FONT = 9.5;
-  const SMALL_ICON = 11;
+  const SMALL_FONT = 10;
+  const SMALL_ICON = 12;
 
   function smallInfoRow(iconName, label, value, valueCol) {
     const finalCol = valueCol || C_MAIN;
@@ -353,42 +352,40 @@ export default async function(ctx) {
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const isLarge = widgetFamily === "systemLarge";
-  
-  // 【排版修改区】缩减上下外边距
-  const WIDGET_PADDING = isLarge ? [8, 12] : [6, 10]; 
+  const WIDGET_PADDING = isLarge ? [10, 12] : [8, 10];
   const COL_GAP = 12;
 
   return {
     type: "widget",
     padding: WIDGET_PADDING,
-    gap: 1.5, // 【排版修改区】原为3，现压缩到1.5
+    gap: 3,
     backgroundColor: BG_COLOR,
     children: [
       {
-        type: "stack", direction: "row", alignItems: "center", gap: 5,
+        type: "stack", direction: "row", alignItems: "center", gap: 6,
         children: [
-          { type: "text", text: "数据中心 (DCH)", font: { size: 12, weight: "heavy" }, textColor: C_TITLE },
+          { type: "text", text: "数据中心 (DCH)", font: { size: 13, weight: "heavy" }, textColor: C_TITLE },
           {
             type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              { type: "image", src: `sf-symbol:${topRiskIcon}`, color: topRiskCol, width: 11, height: 11 },
-              { type: "text", text: topRiskTxt, font: { size: 10, weight: "bold" }, textColor: topRiskCol }
+              { type: "image", src: `sf-symbol:${topRiskIcon}`, color: topRiskCol, width: 12, height: 12 },
+              { type: "text", text: topRiskTxt, font: { size: 11, weight: "bold" }, textColor: topRiskCol }
             ]
           },
           { type: "spacer" },
           {
             type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              { type: "image", src: "sf-symbol:exclamationmark.circle.fill", color: C_ORANGE, width: 11, height: 11 },
-              { type: "text", text: policy || "默认节点", font: { size: 10, weight: "bold" }, textColor: C_ORANGE, maxLines: 1 }
+              { type: "image", src: "sf-symbol:exclamationmark.circle.fill", color: C_ORANGE, width: 12, height: 12 },
+              { type: "text", text: policy || "默认节点", font: { size: 11, weight: "bold" }, textColor: C_ORANGE, maxLines: 1 }
             ]
           },
           { type: "spacer" },
           {
             type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              { type: "image", src: "sf-symbol:arrow.clockwise", color: C_SUB, width: 10, height: 10 },
-              { type: "text", text: timeStr, font: { size: 10 }, textColor: C_SUB }
+              { type: "image", src: "sf-symbol:arrow.clockwise", color: C_SUB, width: 11, height: 11 },
+              { type: "text", text: timeStr, font: { size: 11 }, textColor: C_SUB }
             ]
           }
         ]
@@ -397,7 +394,7 @@ export default async function(ctx) {
         type: "stack", direction: "row", gap: COL_GAP,
         children: [
           {
-            type: "stack", direction: "column", gap: 1.5, flex: 1, // 【排版修改区】原为2.5，现压缩到1.5
+            type: "stack", direction: "column", gap: 2.5, flex: 1,
             children: [
               smallInfoRow("house.fill", "本地IP:", lIp, C_GREEN),
               smallInfoRow("person.fill", "本地位置:", lLoc),
@@ -405,7 +402,7 @@ export default async function(ctx) {
             ]
           },
           {
-            type: "stack", direction: "column", gap: 1.5, flex: 1, // 【排版修改区】原为2.5，现压缩到1.5
+            type: "stack", direction: "column", gap: 2.5, flex: 1,
             children: [
               smallInfoRow("globe", "落地IP:", nIp, proxySuccess ? C_GREEN : C_RED),
               smallInfoRow("map.fill", "落地位置:", nLoc, proxySuccess ? C_MAIN : C_RED),
@@ -419,7 +416,7 @@ export default async function(ctx) {
         type: "stack", direction: "row", gap: COL_GAP,
         children: [
           {
-            type: "stack", direction: "column", gap: 1, flex: 1, // 【排版修改区】原为2，现压缩到1
+            type: "stack", direction: "column", gap: 2, flex: 1,
             children: [
               UnlockRow("GPT", gptStatus),
               UnlockRow("Claude", claudeStatus),
@@ -430,7 +427,7 @@ export default async function(ctx) {
             ]
           },
           {
-            type: "stack", direction: "column", gap: 1, flex: 1, // 【排版修改区】原为2，现压缩到1
+            type: "stack", direction: "column", gap: 2, flex: 1,
             children: [
               RiskRow("TG 预测", tgData),
               RiskRow("IPPure", ippureData),
