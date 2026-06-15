@@ -1,11 +1,6 @@
-// 现货黄金 - 境外可用版（fawazahmed0 currency API，无需 key）
-// XAU/USD 实时价格 + 纯文字 Widget，兼容 Egern JS 沙箱
-
 export default async function (ctx) {
-  // 主接口（jsDelivr CDN 加速）
-  const URL_PRIMARY   = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.json';
-  // 备用接口（Cloudflare Pages 直连）
-  const URL_FALLBACK  = 'https://latest.currency-api.pages.dev/v1/currencies/xau.json';
+  const URL_PRIMARY  = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.json';
+  const URL_FALLBACK = 'https://latest.currency-api.pages.dev/v1/currencies/xau.json';
 
   let xauUsd = NaN;
   let updatedAt = '';
@@ -18,7 +13,6 @@ export default async function (ctx) {
       });
       if (resp.status !== 200) continue;
       const j = await resp.json();
-      // j.xau.usd = 1 XAU 值多少 USD
       const rate = j?.xau?.usd;
       if (typeof rate === 'number' && isFinite(rate)) {
         xauUsd = rate;
@@ -30,7 +24,6 @@ export default async function (ctx) {
     }
   }
 
-  // 昨日收盘（用于计算涨跌幅）—— 同源 API 取昨日数据
   let prevClose = NaN;
   try {
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
@@ -48,22 +41,20 @@ export default async function (ctx) {
     console.log('昨日数据失败: ' + e);
   }
 
-  // 涨跌幅
   const pct = (isFinite(xauUsd) && isFinite(prevClose) && prevClose > 0)
     ? ((xauUsd - prevClose) / prevClose) * 100
     : NaN;
 
   const priceText = isFinite(xauUsd) ? xauUsd.toFixed(2) : '--';
-  const diffText  = (isFinite(xauUsd) && isFinite(prevClose))
-    ? (xauUsd - prevClose >= 0 ? '+' : '') + (xauUsd - prevClose).toFixed(2)
-    : '';
+  const diffVal   = (isFinite(xauUsd) && isFinite(prevClose)) ? (xauUsd - prevClose) : NaN;
+  const diffText  = isFinite(diffVal) ? ((diffVal >= 0 ? '+' : '') + diffVal.toFixed(2)) : '';
 
   let trendText  = '--';
   let trendColor = '#999999';
   if (isFinite(pct)) {
-    if (pct > 0)      { trendText = `↑ +${pct.toFixed(2)}%`; trendColor = '#FF3B30'; }
-    else if (pct < 0) { trendText = `↓ ${pct.toFixed(2)}%`;  trendColor = '#34C759'; }
-    else              { trendText = '→ 0.00%';                trendColor = '#FF9F0A'; }
+    if (pct > 0)      { trendText = `+${pct.toFixed(2)}%`; trendColor = '#FF3B30'; }
+    else if (pct < 0) { trendText = `${pct.toFixed(2)}%`;  trendColor = '#34C759'; }
+    else              { trendText = '0.00%';                trendColor = '#FF9F0A'; }
   }
 
   const mainColor = trendColor === '#999999' ? '#FFFFFF' : trendColor;
@@ -72,7 +63,7 @@ export default async function (ctx) {
   return {
     type: 'widget',
     padding: 14,
-    gap: 8,
+    gap: 10,
     refreshAfter: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     backgroundGradient: {
       type: 'linear',
@@ -84,7 +75,9 @@ export default async function (ctx) {
     children: [
       // 标题行
       {
-        type: 'stack', direction: 'row', alignItems: 'center', height: 22,
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
         children: [
           { type: 'image', src: 'sf-symbol:diamond.circle.fill', width: 14, height: 14, color: '#FFD166' },
           { type: 'spacer', length: 6 },
@@ -93,32 +86,21 @@ export default async function (ctx) {
           { type: 'text', text: 'USD/troy oz', font: { size: 'caption2' }, textColor: '#666666', maxLines: 1 },
         ],
       },
-      // 价格行
+      // 价格
       {
-        type: 'stack', direction: 'row', alignItems: 'baseline', height: 48,
+        type: 'text',
+        text: priceText,
+        font: { size: 38, weight: 'bold', design: 'rounded' },
+        textColor: mainColor,
+        maxLines: 1,
+        minScale: 0.7,
+      },
+      // 涨跌幅
+      {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
         children: [
-          { type: 'text', text: priceText, font: { size: 38, weight: 'bold', design: 'rounded' }, textColor: mainColor, maxLines: 1, minScale: 0.7 },
+          { type: 'text', text: trendText, font: { size: 15, weight: 'semibold' }, textColor: trendColor, maxLines: 1 },
           { type: 'spacer', length: 10 },
-          {
-            type: 'stack', direction: 'column', alignItems: 'trailing',
-            children: [
-              { type: 'text', text: trendText, font: { size: 14, weight: 'semibold' }, textColor: trendColor, maxLines: 1 },
-              ...(diffText ? [{ type: 'text', text: diffText, font: { size: 'caption1' }, textColor: trendColor, maxLines: 1 }] : []),
-            ],
-          },
-        ],
-      },
-      // 底部时间行
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', height: 16,
-        children: [
-          { type: 'image', src: 'sf-symbol:clock.arrow.circlepath', width: 10, height: 10, color: '#555555' },
-          { type: 'spacer', length: 4 },
-          { type: 'date', date: nowISO, format: 'time', font: { size: 'caption2' }, textColor: '#666666' },
-          { type: 'spacer' },
-          { type: 'text', text: updatedAt ? `数据日期: ${updatedAt}` : 'fawazahmed0', font: { size: 'caption2' }, textColor: '#444444', maxLines: 1 },
-        ],
-      },
-    ],
-  };
-}
+          { type: 'text', text: diffText, font: { size: 13 },
