@@ -1,27 +1,12 @@
 // 现货黄金（黄金/美元）K线（东财 push2his）+ Canvas
-// 布局参考：Ygria/Scriptable-Widgets gold_widget.js
-//
-// 周期通过环境变量控制：ctx.env.KLT
-// - 15分钟：15
-// - 30分钟：30
-// - 60分钟：60
-// - 日线：101
-// - 周线：102
-// - 月线：103
-// 未设置或非法则默认 15。
-//
-// 说明：
-// - K线蜡烛图数据来自 push2his kline/get（OHLC）
-// - 右上角涨跌幅直接使用 push2 快照接口 f170（与软件口径一致，不自行计算）
+// 修复版：解决 400 报错及 blobToDataURI 连环崩溃问题
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 const SECID = '122.XAU';
-const LIMIT = 37; // 固定返回条数
-const UT = 'fa5fd1943c7b386f172d6893dbfba10b'; // 修复400错误：东方财富接口必需的公共 Token
+const LIMIT = 37;
 
 function parseKltFromEnv(ctx) {
-  // 严格按 JS API 文档：ctx.env 为 Object<string,string>
-  const raw = ctx.env.KLT; // string | undefined
+  const raw = ctx?.env?.KLT;
   const kltNum = Number(raw);
   const allowed = [15, 30, 60, 101, 102, 103];
   if (allowed.includes(kltNum)) return kltNum;
@@ -35,26 +20,31 @@ function kltLabel(klt) {
   return `${klt}分K`;
 }
 
+// 核心修复1：补充缺失的图片转换函数，防止崩溃
+function blobToDataURI(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('FileReader error'));
+    r.readAsDataURL(blob);
+  });
+}
+
 async function canvasToDataURI(canvas) {
   if (canvas && typeof canvas.convertToBlob === 'function') {
     const blob = await canvas.convertToBlob({ type: 'image/png' });
-    return await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = () => reject(new Error('FileReader error'));
-      r.readAsDataURL(blob);
-    });
+    return await blobToDataURI(blob);
   }
   if (canvas && typeof canvas.toDataURL === 'function') {
     return canvas.toDataURL('image/png');
   }
-  throw new Error('No supported canvas export method (convertToBlob/toDataURL)');
+  throw new Error('No supported canvas export method');
 }
 
 function drawCandles(ctx2d, ohlc, w, h) {
   const padX = 2;
   const padY = 6;
-  const px = (v) => Math.round(v) + 0.5; // 0.5 像素对齐，细线更锐
+  const px = (v) => Math.round(v) + 0.5;
   const innerW = w - padX * 2;
   const innerH = h - padY * 2;
   const minBodyH = 2;
@@ -64,7 +54,6 @@ function drawCandles(ctx2d, ohlc, w, h) {
     return;
   }
 
-  // Y轴范围：使用全量最高/最低，避免截断
   let minP = Infinity;
   let maxP = -Infinity;
   for (const b of ohlc) {
@@ -72,13 +61,11 @@ function drawCandles(ctx2d, ohlc, w, h) {
     if (b.high > maxP) maxP = b.high;
   }
   if (!isFinite(minP) || !isFinite(maxP) || maxP <= minP) {
-    minP = 0;
-    maxP = 1;
+    minP = 0; maxP = 1;
   }
 
-  // 留白（防止顶部/底部被裁）
   const span = maxP - minP;
-  const padSpan = span * 0.03; // 3% 留白
+  const padSpan = span * 0.03;
   minP -= padSpan;
   maxP += padSpan;
 
@@ -94,7 +81,6 @@ function drawCandles(ctx2d, ohlc, w, h) {
 
   ctx2d.clearRect(0, 0, w, h);
 
-  // subtle grid
   ctx2d.globalAlpha = 0.18;
   ctx2d.strokeStyle = '#FFFFFF';
   ctx2d.lineWidth = 1;
@@ -107,11 +93,8 @@ function drawCandles(ctx2d, ohlc, w, h) {
   }
   ctx2d.globalAlpha = 1;
 
-  // 找到最高柱与最低柱（用于标注）
-  let maxHigh = -Infinity;
-  let iHigh = -1;
-  let minLow = Infinity;
-  let iLow = -1;
+  let maxHigh = -Infinity; let iHigh = -1;
+  let minLow = Infinity; let iLow = -1;
   for (let i = 0; i < ohlc.length; i++) {
     const b = ohlc[i];
     if (b.high > maxHigh) { maxHigh = b.high; iHigh = i; }
@@ -129,10 +112,8 @@ function drawCandles(ctx2d, ohlc, w, h) {
     const yLow = yOf(b.low);
 
     const up = b.close >= b.open;
-    // A股习惯：红涨绿跌
     const color = up ? '#FF3B30' : '#34C759';
 
-    // wick
     ctx2d.strokeStyle = color;
     ctx2d.lineWidth = 1.3;
     ctx2d.beginPath();
@@ -140,32 +121,21 @@ function drawCandles(ctx2d, ohlc, w, h) {
     ctx2d.lineTo(xCenter, yLow);
     ctx2d.stroke();
 
-    // body
     const top = Math.min(yOpen, yClose);
     const bottom = Math.max(yOpen, yClose);
     const bodyH = Math.max(minBodyH, bottom - top);
     let bodyTop = top;
-    if (bodyTop + bodyH > padY + innerH) {
-      bodyTop = padY + innerH - bodyH;
-    }
-    if (bodyTop < padY) {
-      bodyTop = padY;
-    }
+    if (bodyTop + bodyH > padY + innerH) bodyTop = padY + innerH - bodyH;
+    if (bodyTop < padY) bodyTop = padY;
+    
     ctx2d.fillStyle = color;
     ctx2d.fillRect(xLeft, bodyTop, candleW, bodyH);
   }
 
-  // 标注最高/最低（B方案：靠右则向左画，靠左则向右画，避免越界）
   const fmt = (v) => (isFinite(v) ? v.toFixed(2) : '--');
-  const labelStyle = {
-    stroke: 'rgba(255,255,255,0.55)',
-    fill: 'rgba(255,255,255,0.80)',
-    font: '11px system-ui',
-  };
+  const labelStyle = { font: '11px system-ui' };
 
-  function clamp(v, lo, hi) {
-    return Math.max(lo, Math.min(hi, v));
-  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   function drawLabelAt(i, yRaw, text, above) {
     if (i < 0) return;
@@ -179,7 +149,6 @@ function drawCandles(ctx2d, ohlc, w, h) {
     const yShifted = above ? (yRaw + insetY) : (yRaw - insetY);
     const y = clamp(yShifted, padY + 12, h - padY - 12);
 
-    // leader line
     ctx2d.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx2d.lineWidth = 1.2;
     ctx2d.beginPath();
@@ -187,7 +156,6 @@ function drawCandles(ctx2d, ohlc, w, h) {
     ctx2d.lineTo(x + dir * lineLen, y);
     ctx2d.stroke();
 
-    // text
     ctx2d.fillStyle = 'rgba(255,255,255,0.95)';
     ctx2d.font = labelStyle.font;
     ctx2d.textBaseline = above ? 'bottom' : 'top';
@@ -201,7 +169,6 @@ function drawCandles(ctx2d, ohlc, w, h) {
   drawLabelAt(iLow, yOf(minLow), fmt(minLow), false);
 }
 
-
 function fmtPrice(x, dec) {
   if (!isFinite(x)) return '--';
   return x.toFixed(typeof dec === 'number' ? dec : 2);
@@ -213,21 +180,18 @@ function placeholderChartDataURI(w, h) {
     canvas = new OffscreenCanvas(w, h);
   } else if (typeof document !== 'undefined' && document.createElement) {
     canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = w; canvas.height = h;
   } else {
     throw new Error('No OffscreenCanvas or document canvas available');
   }
   const g = canvas.getContext('2d');
-  if (!g) throw new Error('canvas.getContext(2d) returned null');
 
-  // 背景保持透明（由widget背景承接）
   g.clearRect(0, 0, w, h);
   g.fillStyle = 'rgba(255,255,255,0.45)';
   g.font = '12px system-ui';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText('数据不足或网络异常', w / 2, h / 2);
+  g.fillText('暂无数据 / 网络异常', w / 2, h / 2);
 
   if (typeof canvas.convertToBlob === 'function') {
     return canvas.convertToBlob({ type: 'image/png' }).then(blobToDataURI);
@@ -240,24 +204,21 @@ function placeholderChartDataURI(w, h) {
 
 export default async function (ctx) {
   const KLT = parseKltFromEnv(ctx);
+  const end = '20991231'; 
 
-  // 修复：东财API目前更推荐的远期截止日期，避免2099导致越界 400 错误
-  const end = '20500000'; 
-
-  // 修复：加入 ut 令牌，并严格进行 URL 编码
+  // 核心修复2：fqt=0 (改为不复权，因为现货黄金请求复权会立刻报 400 错误)
   const url =
     'https://push2his.eastmoney.com/api/qt/stock/kline/get'
     + `?secid=${encodeURIComponent(SECID)}`
-    + `&ut=${UT}`
-    + `&klt=${encodeURIComponent(String(KLT))}`
-    + '&fqt=1'
-    + `&lmt=${encodeURIComponent(String(LIMIT))}`
+    + `&klt=${KLT}`
+    + '&fqt=0' 
+    + `&lmt=${LIMIT}`
     + `&end=${end}`
-    + '&fields1=' + encodeURIComponent('f1,f2,f3,f4,f5,f6')
-    + '&fields2=' + encodeURIComponent('f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61');
+    + '&iscca=1'
+    + '&fields1=f1,f2,f3,f4,f5,f6'
+    + '&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61';
 
   let data = null;
-  // 增加网络容错处理，防止小组件彻底崩溃
   try {
     const resp = await ctx.http.get(url, {
       timeout: 8000,
@@ -267,39 +228,35 @@ export default async function (ctx) {
         'Referer': 'https://quote.eastmoney.com/',
       },
     });
-    const j = await resp.json();
-    data = j && j.data ? j.data : null;
+    if (resp.status !== 200) {
+      console.log(`K线 HTTP 报错: ${resp.status}`);
+    } else {
+      const j = await resp.json();
+      data = j?.data ?? null;
+    }
   } catch (err) {
-    console.log("K线数据拉取失败: " + err);
+    console.log("K线数据拉取异常: " + err);
   }
 
   const hasKlines = !!(data && Array.isArray(data.klines) && data.klines.length >= 2);
-
   const kl = [];
   if (hasKlines) {
     for (const s of data.klines) {
       const arr = String(s).split(',');
       if (arr.length < 5) continue;
-      const ts = arr[0];
-      const open = Number(arr[1]);
-      const close = Number(arr[2]);
-      const high = Number(arr[3]);
-      const low = Number(arr[4]);
+      const ts = arr[0], open = Number(arr[1]), close = Number(arr[2]);
+      const high = Number(arr[3]), low = Number(arr[4]);
       if ([open, close, high, low].some(x => !isFinite(x))) continue;
       kl.push({ ts, open, close, high, low });
     }
   }
 
   const dec = typeof data?.decimal === 'number' ? data.decimal : 2;
-  const current = kl[kl.length - 1];
-
-  // 额外：拉取 push2 快照，直接使用其涨跌幅 f170（软件口径）
-  // 修复：同样加上 ut 参数和 URL 编码
+  
   const snapUrl =
     'https://push2.eastmoney.com/api/qt/stock/get'
     + `?secid=${encodeURIComponent(SECID)}`
-    + `&ut=${UT}`
-    + '&fields=' + encodeURIComponent('f43,f59,f60,f169,f170,f58,f57');
+    + '&fields=f43,f59,f60,f169,f170,f58,f57';
 
   let snap = {};
   try {
@@ -311,20 +268,19 @@ export default async function (ctx) {
         'Referer': 'https://quote.eastmoney.com/',
       },
     });
-    const snapJson = await snapResp.json();
-    snap = snapJson?.data ?? {};
-  } catch (_) {
-    snap = {};
+    if (snapResp.status === 200) {
+       const snapJson = await snapResp.json();
+       snap = snapJson?.data ?? {};
+    }
+  } catch (err) {
+    console.log("快照数据拉取异常: " + err);
   }
 
-  const snapPct = typeof snap.f170 === 'number' ? snap.f170 / 100 : NaN; // 单位：%
-
-  // 最新价：使用 push2 快照 f43（与软件一致）
+  const snapPct = typeof snap.f170 === 'number' ? snap.f170 / 100 : NaN; 
   const snapDec = typeof snap.f59 === 'number' ? snap.f59 : dec;
   const snapScale = Math.pow(10, snapDec);
   const snapLast = typeof snap.f43 === 'number' ? snap.f43 / snapScale : NaN;
 
-  // 趋势文本：只显示涨跌幅（来自快照 f170）
   let trendText = '-';
   let trendColor = '#999999';
   if (isFinite(snapPct)) {
@@ -340,7 +296,6 @@ export default async function (ctx) {
     }
   }
 
-  // 绘图：蜡烛图（高DPI，减少放大导致的模糊）
   const W = 380;
   const H = 126;
   const SCALE = 2;
@@ -380,48 +335,19 @@ export default async function (ctx) {
       endPoint: { x: 1, y: 1 },
     },
     children: [
-      // Header 区（固定高度：单行，标题+现价+涨跌幅同一高度）
       {
         type: 'stack',
         direction: 'row',
         height: 34,
         alignItems: 'center',
         children: [
-          {
-            type: 'image',
-            src: 'sf-symbol:diamond.circle.fill',
-            width: 15,
-            height: 15,
-            color: '#FFD166',
-          },
+          { type: 'image', src: 'sf-symbol:diamond.circle.fill', width: 15, height: 15, color: '#FFD166' },
           { type: 'spacer', length: 6 },
-          {
-            type: 'text',
-            text: '现货黄金',
-            font: { size: 15, weight: 'black'},
-            textColor: '#FFFFFF',
-            maxLines: 1,
-            minScale: 0.6,
-          },
+          { type: 'text', text: '现货黄金', font: { size: 15, weight: 'black'}, textColor: '#FFFFFF', maxLines: 1, minScale: 0.6 },
           { type: 'spacer', length: 25 },
-          {
-            type: 'text',
-            text: kltLabel(KLT),
-            font: { size: 'caption2', weight: 'medium' },
-            textColor: '#B8B8B8',
-            maxLines: 1,
-            minScale: 0.6,
-          },
+          { type: 'text', text: kltLabel(KLT), font: { size: 'caption2', weight: 'medium' }, textColor: '#B8B8B8', maxLines: 1, minScale: 0.6 },
           { type: 'spacer' },
-          {
-            type: 'text',
-            text: fmtPrice(snapLast, snapDec),
-            font: { size: 'headline', weight: 'semibold', design: 'rounded' },
-            textColor: mainColor,
-            textAlign: 'right',
-            maxLines: 1,
-            minScale: 0.6,
-          },
+          { type: 'text', text: fmtPrice(snapLast, snapDec), font: { size: 'headline', weight: 'semibold', design: 'rounded' }, textColor: mainColor, textAlign: 'right', maxLines: 1, minScale: 0.6 },
           { type: 'spacer', length: 8 },
           {
             type: 'stack',
@@ -429,37 +355,19 @@ export default async function (ctx) {
             backgroundColor: trendColor,
             borderRadius: 8,
             children: [
-              {
-                type: 'text',
-                text: trendText,
-                font: { size: 'caption1', weight: 'bold' },
-                textColor: '#FFFFFF',
-                textAlign: 'right',
-                maxLines: 1,
-                minScale: 0.6,
-              },
+              { type: 'text', text: trendText, font: { size: 'caption1', weight: 'bold' }, textColor: '#FFFFFF', textAlign: 'right', maxLines: 1, minScale: 0.6 },
             ],
           },
         ],
       },
-
-      // Chart 区：固定高度，避免 image flex 占满
       {
         type: 'stack',
         direction: 'column',
         height: 120,
         children: [
-          {
-            type: 'image',
-            src: dataURI,
-            height: 120,
-            resizeMode: 'contain',
-            borderRadius: 12,
-          },
+          { type: 'image', src: dataURI, height: 120, resizeMode: 'contain', borderRadius: 12 },
         ],
       },
-
-      // Footer 区（固定高度，避免下穿）
       {
         type: 'stack',
         direction: 'row',
@@ -471,23 +379,9 @@ export default async function (ctx) {
             direction: 'row',
             alignItems: 'center',
             children: [
-              {
-                type: 'image',
-                src: 'sf-symbol:clock.arrow.circlepath',
-                width: 9,
-                height: 9,
-                color: '#999999',
-              },
+              { type: 'image', src: 'sf-symbol:clock.arrow.circlepath', width: 9, height: 9, color: '#999999' },
               { type: 'spacer', length: 4 },
-              {
-                type: 'date',
-                date: nowISO,
-                format: 'relative',
-                font: { size: 'caption2', weight: 'medium' },
-                textColor: '#999999',
-                maxLines: 1,
-                minScale: 0.6,
-              },
+              { type: 'date', date: nowISO, format: 'relative', font: { size: 'caption2', weight: 'medium' }, textColor: '#999999', maxLines: 1, minScale: 0.6 },
             ],
           },
           { type: 'spacer' },
@@ -496,25 +390,9 @@ export default async function (ctx) {
             direction: 'row',
             alignItems: 'center',
             children: [
-              {
-                type: 'date',
-                date: nowISO,
-                format: 'date',
-                font: { size: 'caption2', weight: 'medium' },
-                textColor: '#999999',
-                maxLines: 1,
-                minScale: 0.6,
-              },
+              { type: 'date', date: nowISO, format: 'date', font: { size: 'caption2', weight: 'medium' }, textColor: '#999999', maxLines: 1, minScale: 0.6 },
               { type: 'spacer', length: 6 },
-              {
-                type: 'date',
-                date: nowISO,
-                format: 'time',
-                font: { size: 'caption2', weight: 'medium' },
-                textColor: '#999999',
-                maxLines: 1,
-                minScale: 0.6,
-              },
+              { type: 'date', date: nowISO, format: 'time', font: { size: 'caption2', weight: 'medium' }, textColor: '#999999', maxLines: 1, minScale: 0.6 },
             ],
           },
         ],
