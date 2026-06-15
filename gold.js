@@ -100,7 +100,7 @@ export default async function (ctx) {
           { type: 'text', text: priceText, font: { size: 38, weight: 'bold', design: 'rounded' }, textColor: mainColor, maxLines: 1, minScale: 0.7 },
           { type: 'spacer', length: 10 },
           {
-            type: 'stack', direction: 'column', alignItems: 'flex-end',
+            type: 'stack', direction: 'column', alignItems: 'trailing',
             children: [
               { type: 'text', text: trendText, font: { size: 14, weight: 'semibold' }, textColor: trendColor, maxLines: 1 },
               ...(diffText ? [{ type: 'text', text: diffText, font: { size: 'caption1' }, textColor: trendColor, maxLines: 1 }] : []),
