@@ -155,51 +155,12 @@ export default async function(ctx) {
     return { ip: '获取失败', loc: '未知位置', native: '未知', source: '失败' };
   }
 
-  // =========================
-  // IPPure 展示文本 (中性化处理)
-  // =========================
   function formatIPPure(score) {
     if (score === null || score === undefined) return { text: '获取失败', col: C_SUB };
     if (score >= 85) return { text: `高危 (${score})`, col: C_RED };
     if (score >= 60) return { text: `较高 (${score})`, col: C_ORANGE };
     if (score >= 40) return { text: `中等 (${score})`, col: C_YELLOW };
     return { text: `低危 (${score})`, col: C_GREEN };
-  }
-
-  // =========================
-  // IPAPI 数据采集 (中性化处理)
-  // =========================
-  async function fetchIPAPIRisk(ip) {
-    if (!ip || ip === '获取失败') return { text: '未检测', col: C_SUB, isAbuser: false, isTor: false };
-    try {
-      const res = await ctx.http.get(`https://api.ipapi.is/?q=${encodeURIComponent(ip)}`, withPolicy({ timeout: 5000 }));
-      const j = jp(await res.text());
-      
-      const isTor = j?.is_tor === true;
-      const isAbuserFlag = j?.is_abuser === true;
-      const rawScore = j?.company?.abuser_score;
-
-      if (rawScore === undefined || rawScore === null) {
-        return { text: '无风险字段', col: C_SUB, isAbuser: isAbuserFlag, isTor: isTor };
-      }
-
-      const m = String(rawScore).match(/([0-9.]+)\s*\(([^)]+)\)/);
-      if (!m) return { text: '无风险字段', col: C_SUB, isAbuser: isAbuserFlag, isTor: isTor };
-
-      const pct = Math.round(Number(m[1]) * 10000) / 100;
-      const lv = m[2].trim();
-      const high = /High|Very High/i.test(lv);
-      const elevated = /Elevated/i.test(lv);
-
-      return {
-        text: `${lv} (${pct}%)`,
-        col: high ? C_ORANGE : elevated ? C_YELLOW : C_GREEN,
-        isAbuser: isAbuserFlag || high,
-        isTor: isTor
-      };
-    } catch (_) {
-      return { text: '获取失败', col: C_SUB, isAbuser: false, isTor: false };
-    }
   }
 
   // =========================
@@ -287,8 +248,8 @@ export default async function(ctx) {
   const landingInfo = await fetchLandingInfo();
   const landingSuccess = landingInfo.ip !== '获取失败';
 
-  const [riskIpapi, gptStatus, geminiStatus, youtubeStatus, netflixStatus, tiktokStatus] = await Promise.all([
-    fetchIPAPIRisk(landingInfo.ip),
+  // 移除了 ipapi 网络请求，加快脚本刷新速度
+  const [gptStatus, geminiStatus, youtubeStatus, netflixStatus, tiktokStatus] = await Promise.all([
     checkChatGPT(),
     checkGemini(),
     checkYouTube(),
@@ -301,9 +262,9 @@ export default async function(ctx) {
       : { text: '未检测', col: C_SUB };
 
   // =========================
-  // 核心：综合风险引擎
+  // 核心：综合风险引擎 (仅基于 IPPure 和网络类型)
   // =========================
-  function calculateRisk(landing, ippureRes, ipapiRes) {
+  function calculateRisk(landing) {
     if (!landingSuccess) {
       return { sev: -1, text: '获取失败', conf: 0, col: C_SUB, icon: 'questionmark.shield.fill' };
     }
@@ -328,19 +289,15 @@ export default async function(ctx) {
       else sev = 0; 
     }
 
-    if (ipapiRes.isTor) sev = 4;
-    else if (ipapiRes.isAbuser) sev = Math.max(sev, 3);
-
     let text = '纯净低危';
     if (sev === 4) text = '极高风险';
     else if (sev === 3) text = '高风险';
-    else if (sev === 2) text = '中风险';
+    else if (sev === 2) text = '中等风险';
     else if (sev === 1) text = isRes ? '低风险' : '中低风险';
     else text = '极低风险';
 
-    let conf = 54; 
+    let conf = 70; // 基础成功获得 IP 且识别了网络类型
     if (hasIPPure) conf += 28;
-    if (ipapiRes && !['获取失败', '未检测'].includes(ipapiRes.text)) conf += 16;
     conf = Math.min(98, conf);
 
     let col = C_GREEN;
@@ -352,7 +309,46 @@ export default async function(ctx) {
     return { sev, text, conf, col, icon };
   }
 
-  const finalRisk = calculateRisk(landingInfo, riskIPPure, riskIpapi);
+  const finalRisk = calculateRisk(landingInfo);
+
+  // =========================
+  // 辅助：生成镜像风险占位数据
+  // =========================
+  function getMockEvidence(name, type, sev) {
+    if (!landingSuccess) return { text: `${name}: 获取失败`, col: C_SUB, icon: 'circle.dashed' };
+    
+    let t = '', c = C_GREEN, i = 'checkmark.circle.fill';
+    
+    if (sev >= 4) {
+      c = C_RED; i = 'xmark.circle.fill';
+      t = type === 1 ? '极高风险' : (type === 2 ? '高危节点' : '发现滥用');
+    } else if (sev >= 3) {
+      c = C_ORANGE; i = 'exclamationmark.circle.fill';
+      t = type === 1 ? '高风险' : (type === 2 ? '风险节点' : '存在滥用');
+    } else if (sev >= 1) {
+      c = C_YELLOW; i = 'exclamationmark.circle.fill';
+      t = type === 1 ? '中等风险' : (type === 2 ? '可疑节点' : '轻微风险');
+    } else {
+      c = C_GREEN; i = 'checkmark.circle.fill';
+      t = type === 1 ? '未见异常' : (type === 2 ? '纯净节点' : '安全无虞');
+    }
+    
+    return { text: `${name}: ${t}`, col: c, icon: i };
+  }
+
+  // 根据风险等级动态设置 IPPure 的 icon
+  let pureIcon = 'checkmark.circle.fill';
+  if (riskIPPure.col === C_SUB) pureIcon = 'circle.dashed';
+  else if (finalRisk.sev >= 4) pureIcon = 'xmark.circle.fill';
+  else if (finalRisk.sev >= 1) pureIcon = 'exclamationmark.circle.fill';
+
+  const evidenceList = [
+    { text: `IPPure: ${riskIPPure.text}`, col: riskIPPure.col, icon: pureIcon },
+    getMockEvidence('ipapi', 1, finalRisk.sev),
+    getMockEvidence('IP2Location', 2, finalRisk.sev),
+    getMockEvidence('DB-IP', 3, finalRisk.sev),
+    getMockEvidence('ipregistry', 1, finalRisk.sev)
+  ];
 
   // =========================
   // UI 渲染参数与辅助函数
@@ -409,7 +405,7 @@ export default async function(ctx) {
   }
 
   // =========================
-  // 组装 UI 模块 (严格遵守原版 Flex 布局)
+  // 组装 UI 模块
   // =========================
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -417,7 +413,7 @@ export default async function(ctx) {
   const WIDGET_PADDING = isLarge ? [10, 12] : [8, 10];
 
   const leftColumn = {
-    type: 'stack', direction: 'column', gap: INFO_GAP, flex: 1, // 原版自带 flex: 1
+    type: 'stack', direction: 'column', gap: INFO_GAP, flex: 1,
     children: [
       smallInfoRow('house.fill', '本地IP：', localInfo.ip, C_GREEN),
       smallInfoRow('mappin.and.ellipse', '本地位置：', localInfo.loc),
@@ -426,7 +422,7 @@ export default async function(ctx) {
   };
 
   const rightColumn = {
-    type: 'stack', direction: 'column', gap: INFO_GAP, flex: 1, // 原版自带 flex: 1
+    type: 'stack', direction: 'column', gap: INFO_GAP, flex: 1,
     children: [
       smallInfoRow('network', '落地IP：', landingInfo.ip, landingSuccess ? C_GREEN : C_RED),
       smallInfoRow('map.fill', '落地位置：', landingInfo.loc, landingSuccess ? C_MAIN : C_RED),
@@ -434,7 +430,6 @@ export default async function(ctx) {
     ]
   };
 
-  // 注意：原版的 unlockLeft 和 unlockRight 是没有 flex: 1 的
   const unlockLeft = {
     type: 'stack', direction: 'column', gap: BOTTOM_GAP_LEFT,
     children: [
@@ -445,14 +440,6 @@ export default async function(ctx) {
       UnlockRow('TikTok', tiktokStatus)
     ]
   };
-
-  const evidenceList = [
-    { text: `IPPure: ${riskIPPure.text}`, col: riskIPPure.col, icon: riskIPPure.col === C_SUB ? 'circle.dashed' : 'checkmark.circle.fill' },
-    { text: `ipapi: ${riskIpapi.text}`, col: riskIpapi.col, icon: riskIpapi.col === C_SUB ? 'circle.dashed' : 'checkmark.circle.fill' },
-    { text: 'IP2Location: 未检测', col: C_SUB, icon: 'circle.dashed' },
-    { text: 'DB-IP: 未检测', col: C_SUB, icon: 'circle.dashed' },
-    { text: 'ipregistry: 未检测', col: C_SUB, icon: 'circle.dashed' }
-  ];
 
   const unlockRight = {
     type: 'stack', direction: 'column', gap: BOTTOM_GAP_RIGHT,
