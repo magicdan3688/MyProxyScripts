@@ -1,1727 +1,444 @@
+// =========================
+// 环境变量策略组
+// 名称：POLICY
+// 值：你的策略组名字 (Egern会传进来)
+// =========================
 export default async function(ctx) {
-  // =========================
-  // 环境变量策略组
-  // 名称：POLICY
-  // 值：你的策略组名字，例如：国际流量
-  // =========================
-  const rawPolicy = String(ctx?.env?.POLICY ?? '').trim();
-  const isDirectPolicy = !rawPolicy || /^(direct|直连)$/i.test(rawPolicy);
-  const policy = isDirectPolicy ? 'DIRECT' : rawPolicy;
-  const widgetFamily = ctx.widgetFamily || 'systemMedium';
+  const policy = ctx.env.POLICY || "";
+  const widgetFamily = ctx.widgetFamily || "systemMedium";
+  const BG_COLOR = { light: "#FFFFFF", dark: "#1C1C1E" };
+  const C_TITLE = { light: "#1A1A1A", dark: "#FFD700" };
+  const C_SUB = { light: "#666666", dark: "#B0B0B0" };
+  const C_MAIN = { light: "#1A1A1A", dark: "#FFFFFF" };
+  const C_GREEN = { light: "#32D74B", dark: "#32D74B" };
+  const C_YELLOW = { light: "#FFD60A", dark: "#FFD60A" };
+  const C_ORANGE = { light: "#FF9500", dark: "#FF9500" };
+  const C_RED = { light: "#FF3B30", dark: "#FF3B30" };
+  const C_ICON = { light: "#007AFF", dark: "#0A84FF" };
 
-  const BG_COLOR = { light: '#FFFFFF', dark: '#2C2C2E' };
-  const C_TITLE = { light: '#1A1A1A', dark: '#FFD700' };
-  const C_SUB = { light: '#666666', dark: '#B0B0B0' };
-  const C_MAIN = { light: '#1A1A1A', dark: '#FFFFFF' };
-  const C_GREEN = { light: '#32D74B', dark: '#32D74B' };
-  const C_YELLOW = { light: '#FFD60A', dark: '#FFD60A' };
-  const C_ORANGE = { light: '#FF9500', dark: '#FF9500' };
-  const C_RED = { light: '#FF3B30', dark: '#FF3B30' };
-  const C_ICON = { light: '#007AFF', dark: '#0A84FF' };
-
-  if ([
-    'systemSmall',
-    'accessoryCircular',
-    'accessoryInline',
-    'accessoryRectangular'
-  ].includes(widgetFamily)) {
+  if (widgetFamily === "systemSmall" || widgetFamily.includes("accessory")) {
     return {
-      type: 'widget',
+      type: "widget",
       padding: 16,
       backgroundColor: BG_COLOR,
-      children: [{
-        type: 'text',
-        text: '请使用中号或大号组件',
-        font: { size: 'callout' },
-        textColor: C_MAIN,
-        textAlign: 'center'
-      }]
+      children: [
+        { type: "text", text: "请使用中号或大号组件", font: { size: "callout" }, textColor: C_MAIN, textAlign: "center" }
+      ]
     };
   }
 
-  const BASE_UA =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) ' +
-    'AppleWebKit/605.1.15 (KHTML, like Gecko) ' +
-    'Version/17.4 Mobile/15E148 Safari/604.1';
+  const BASE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
-  // =========================
-  // 核心路由逻辑
-  // =========================
-  //
-  // 1. 本地出口检测永远 DIRECT
-  //
-  // 2. DIRECT 模式：
-  //    落地出口 = 本地 DIRECT 出口
-  //
-  // 3. 非 DIRECT 模式：
-  //    落地出口严格按照 POLICY
-  //
-  // 4. 不复用/修改传入 opts 对象
-  //
-  // 5. 接口失败不能伪装成“低危”
-  //
-
-  function withPolicy(opts = {}) {
-    const out = { ...opts };
-
-    if (!isDirectPolicy) {
-      out.policy = policy;
+  function withPolicy(opts) {
+    const options = opts || {};
+    if (policy && policy !== "DIRECT") {
+      options.policy = policy;
     }
-
-    return out;
+    return options;
   }
 
-  async function getRaw(
-    url,
-    headers,
-    extraOpts,
-    forceDirect = false
-  ) {
-    const opts = forceDirect
-      ? { timeout: 6000 }
-      : withPolicy({ timeout: 6000 });
-
-    if (headers) {
-      opts.headers = headers;
-    }
-
-    if (extraOpts) {
-      Object.assign(opts, extraOpts);
-    }
-
+  async function getRaw(url, headers, extraOpts) {
+    const opts = withPolicy({ timeout: 5000 });
+    if (headers) opts.headers = headers;
+    if (extraOpts) Object.assign(opts, extraOpts);
     return await ctx.http.get(url, opts);
   }
 
-  async function get(
-    url,
-    headers,
-    forceDirect = false
-  ) {
-    const res = await getRaw(
-      url,
-      headers,
-      null,
-      forceDirect
-    );
-
+  async function get(url, headers) {
+    const res = await getRaw(url, headers);
     return await res.text();
   }
 
-  async function post(
-    url,
-    body,
-    headers,
-    forceDirect = false
-  ) {
-    const opts = forceDirect
-      ? {
-          timeout: 6000,
-          body
-        }
-      : withPolicy({
-          timeout: 6000,
-          body
-        });
-
-    if (headers) {
-      opts.headers = headers;
-    }
-
+  async function post(url, body, headers) {
+    const opts = withPolicy({ timeout: 5000, body: body });
+    if (headers) opts.headers = headers;
     const res = await ctx.http.post(url, opts);
-
     return await res.text();
-  }
-
-  async function safe(fn) {
-    try {
-      return await fn();
-    } catch (_) {
-      return null;
-    }
   }
 
   function jp(s) {
-    try {
-      return JSON.parse(s);
-    } catch (_) {
-      return null;
-    }
+    try { return JSON.parse(s); } catch (e) { return null; }
   }
 
   function ti(v) {
     const n = Number(v);
-
-    return Number.isFinite(n)
-      ? Math.round(n)
-      : null;
+    return Number.isFinite(n) ? Math.round(n) : null;
   }
-
-  function cleanISP(isp) {
-    if (!isp) {
-      return '未知运营商';
-    }
-
-    return String(isp)
-      .replace(/^AS\d+\s*/i, '')
-      .trim() || '未知运营商';
-  }
-
-  function countryName(c) {
-    if (!c) {
-      return '';
-    }
-
-    const s = String(c).toUpperCase();
-
-    if (
-      s.includes('JAPAN') ||
-      s === 'JP'
-    ) {
-      return '日本';
-    }
-
-    if (
-      s.includes('CHINA') ||
-      s === 'CN'
-    ) {
-      return '中国';
-    }
-
-    if (
-      s.includes('UNITED STATES') ||
-      s === 'US'
-    ) {
-      return '美国';
-    }
-
-    if (
-      s.includes('HONG KONG') ||
-      s === 'HK'
-    ) {
-      return '香港';
-    }
-
-    if (
-      s.includes('TAIWAN') ||
-      s === 'TW'
-    ) {
-      return '台湾';
-    }
-
-    if (
-      s.includes('SINGAPORE') ||
-      s === 'SG'
-    ) {
-      return '新加坡';
-    }
-
-    if (
-      s.includes('SOUTH KOREA') ||
-      s === 'KR'
-    ) {
-      return '韩国';
-    }
-
-    if (
-      s.includes('UNITED KINGDOM') ||
-      s === 'GB'
-    ) {
-      return '英国';
-    }
-
-    if (
-      s.includes('GERMANY') ||
-      s === 'DE'
-    ) {
-      return '德国';
-    }
-
-    if (
-      s.includes('FRANCE') ||
-      s === 'FR'
-    ) {
-      return '法国';
-    }
-
-    return String(c);
-  }
-
-  function flagEmoji(country) {
-    const c = String(country || '').toUpperCase();
-
-    const map = {
-      CN: '🇨🇳',
-      JP: '🇯🇵',
-      US: '🇺🇸',
-      HK: '🇭🇰',
-      TW: '🇹🇼',
-      MO: '🇲🇴',
-      SG: '🇸🇬',
-      KR: '🇰🇷',
-      GB: '🇬🇧',
-      DE: '🇩🇪',
-      FR: '🇫🇷'
-    };
-
-    if (map[c]) {
-      return map[c];
-    }
-
-    const nameMap = {
-      '中国': '🇨🇳',
-      '日本': '🇯🇵',
-      '美国': '🇺🇸',
-      '香港': '🇭🇰',
-      '台湾': '🇹🇼',
-      '澳门': '🇲🇴',
-      '新加坡': '🇸🇬',
-      '韩国': '🇰🇷',
-      '英国': '🇬🇧',
-      '德国': '🇩🇪',
-      '法国': '🇫🇷'
-    };
-
-    return nameMap[String(country)] || '🌐';
-  }
-
-  function makeLocation(country, city) {
-    const c = countryName(country);
-
-    return (
-      `${flagEmoji(c)} ${c}${city ? ` ${city}` : ''}`
-    ).trim() || '未知位置';
-  }
-
-  // =========================
-  // 本地出口
-  // 永远 DIRECT
-  // =========================
-
-  async function fetchLocalInfo() {
-    const candidates = [
-      {
-        url: 'https://api.ip.sb/geoip',
-
-        parse: d => d?.ip
-          ? {
-              ip: d.ip,
-
-              loc: makeLocation(
-                d.country || d.country_code,
-                d.city
-              ),
-
-              isp: cleanISP(
-                d.isp || d.organization
-              )
-            }
-          : null
-      },
-
-      {
-        url: 'https://ipinfo.io/json',
-
-        parse: d => d?.ip
-          ? {
-              ip: d.ip,
-
-              loc: makeLocation(
-                d.country,
-                d.city
-              ),
-
-              isp: cleanISP(
-                d.org || d.organization
-              )
-            }
-          : null
-      }
-    ];
-
-    for (const item of candidates) {
-      const result = await safe(async () => {
-        const res = await ctx.http.get(
-          item.url,
-          {
-            headers: {
-              'User-Agent': 'Mozilla/5.0'
-            },
-
-            timeout: 5000,
-
-            // 这里必须明确 DIRECT
-            policy: 'DIRECT'
-          }
-        );
-
-        return item.parse(
-          jp(await res.text())
-        );
-      });
-
-      if (result?.ip) {
-        return result;
-      }
-    }
-
-    return {
-      ip: '获取失败',
-      loc: '未知位置',
-      isp: '未知运营商'
-    };
-  }
-
-  // =========================
-  // 落地出口
-  // 严格按照 POLICY
-  // =========================
-
-  async function fetchLandingInfo() {
-
-    // ---------------------------------
-    // DIRECT 模式
-    //
-    // DIRECT 的语义非常明确：
-    //
-    // 本地出口 = 落地出口
-    //
-    // 所以不再重复请求 IPPure。
-    //
-    // 这正是修复 Rakuten 移动网络问题的关键。
-    // ---------------------------------
-
-    if (
-      isDirectPolicy &&
-      localInfo.ip !== '获取失败'
-    ) {
-      return {
-        ip: localInfo.ip,
-        loc: localInfo.loc,
-        native: '未知',
-        source: 'DIRECT'
-      };
-    }
-
-    // ---------------------------------
-    // 第一优先：IPPure
-    //
-    // 非 DIRECT 时严格走 POLICY
-    // ---------------------------------
-
-    const ippure = await safe(async () => {
-      const res = await ctx.http.get(
-        'https://my.ippure.com/v1/info',
-        withPolicy({
-          timeout: 5000
-        })
-      );
-
-      const d = jp(
-        await res.text()
-      );
-
-      if (!d?.ip) {
-        return null;
-      }
-
-      return {
-        ip: d.ip,
-
-        loc: makeLocation(
-          d.countryCode || d.country,
-          d.city
-        ),
-
-        native:
-          d.isResidential === true
-            ? '🏠 原生住宅'
-            : d.isResidential === false
-              ? '🏢 商业机房'
-              : '未知',
-
-        fraudScore: ti(
-          d.fraudScore
-        ),
-
-        source: 'IPPure'
-      };
-    });
-
-    if (ippure?.ip) {
-      return ippure;
-    }
-
-    // ---------------------------------
-    // 第二优先：IP.SB
-    //
-    // 仍然严格走 POLICY
-    // ---------------------------------
-
-    const ipSb = await safe(async () => {
-      const res = await ctx.http.get(
-        'https://api.ip.sb/geoip',
-        withPolicy({
-          timeout: 5000
-        })
-      );
-
-      const d = jp(
-        await res.text()
-      );
-
-      if (!d?.ip) {
-        return null;
-      }
-
-      return {
-        ip: d.ip,
-
-        loc: makeLocation(
-          d.country || d.country_code,
-          d.city
-        ),
-
-        native: '未知',
-
-        source: 'IP.SB'
-      };
-    });
-
-    if (ipSb?.ip) {
-      return ipSb;
-    }
-
-    // ---------------------------------
-    // 第三优先：IPinfo
-    //
-    // 仍然严格走 POLICY
-    // ---------------------------------
-
-    const ipInfo = await safe(async () => {
-      const res = await ctx.http.get(
-        'https://ipinfo.io/json',
-        withPolicy({
-          timeout: 5000,
-
-          headers: {
-            'User-Agent': 'Mozilla/5.0'
-          }
-        })
-      );
-
-      const d = jp(
-        await res.text()
-      );
-
-      if (!d?.ip) {
-        return null;
-      }
-
-      return {
-        ip: d.ip,
-
-        loc: makeLocation(
-          d.country,
-          d.city
-        ),
-
-        native: '未知',
-
-        source: 'IPinfo'
-      };
-    });
-
-    if (ipInfo?.ip) {
-      return ipInfo;
-    }
-
-    // ---------------------------------
-    // 第四优先：ipapi.co
-    //
-    // 仍然严格走 POLICY
-    // ---------------------------------
-
-    const ipApi = await safe(async () => {
-      const res = await ctx.http.get(
-        'https://ipapi.co/json/',
-        withPolicy({
-          timeout: 5000
-        })
-      );
-
-      const d = jp(
-        await res.text()
-      );
-
-      if (!d?.ip) {
-        return null;
-      }
-
-      return {
-        ip: d.ip,
-
-        loc: makeLocation(
-          d.country_code || d.country_name,
-          d.city
-        ),
-
-        native: '未知',
-
-        source: 'ipapi.co'
-      };
-    });
-
-    if (ipApi?.ip) {
-      return ipApi;
-    }
-
-    return {
-      ip: '获取失败',
-      loc: '未知位置',
-      native: '未知',
-      source: '失败'
-    };
-  }
-
-  // =========================
-  // IPPure 风险评分
-  // =========================
-
-  function riskFromScore(score) {
-    if (score === null) {
-      return {
-        text: '获取失败',
-        col: C_RED,
-        sev: 4
-      };
-    }
-
-    if (score >= 80) {
-      return {
-        text: `极高 (${score})`,
-        col: C_RED,
-        sev: 4
-      };
-    }
-
-    if (score >= 70) {
-      return {
-        text: `高危 (${score})`,
-        col: C_ORANGE,
-        sev: 3
-      };
-    }
-
-    if (score >= 40) {
-      return {
-        text: `中等 (${score})`,
-        col: C_YELLOW,
-        sev: 1
-      };
-    }
-
-    return {
-      text: `低危 (${score})`,
-      col: C_GREEN,
-      sev: 0
-    };
-  }
-
-  // =========================
-  // ChatGPT
-  // =========================
 
   async function checkChatGPT() {
     try {
-      const headRes = await getRaw(
-        'https://chatgpt.com',
-        {
-          'User-Agent': BASE_UA
-        },
-        {
-          redirect: 'manual'
-        }
-      );
-
+      const headRes = await getRaw("https://chatgpt.com", { "User-Agent": BASE_UA }, { redirect: "manual" });
       const webAccessible = !!headRes;
-
-      const iosRes = await getRaw(
-        'https://ios.chat.openai.com',
-        {
-          'User-Agent': BASE_UA
-        }
-      );
-
-      const iosBody = iosRes
-        ? await iosRes.text()
-        : '';
-
-      const cfDetails =
-        jp(iosBody)?.cf_details || '';
-
-      const blocked =
-        !iosBody ||
-        iosBody.includes(
-          'blocked_why_headline'
-        ) ||
-        iosBody.includes(
-          'unsupported_country_region_territory'
-        ) ||
-        cfDetails.includes('(1)') ||
-        cfDetails.includes('(2)');
-
-      const appAccessible =
-        !!iosBody &&
-        !blocked;
-
-      if (
-        !webAccessible &&
-        !appAccessible
-      ) {
-        return 'Cross';
+      const iosRes = await getRaw("https://ios.chat.openai.com", { "User-Agent": BASE_UA });
+      const iosBody = iosRes ? await iosRes.text() : "";
+      let cfDetails = "";
+      try { cfDetails = jp(iosBody)?.cf_details || ""; } catch (e2) {}
+      const appBlocked = !iosBody || iosBody.includes("blocked_why_headline") || iosBody.includes("unsupported_country_region_territory") || cfDetails.includes("(1)") || cfDetails.includes("(2)");
+      const appAccessible = !!iosBody && !appBlocked;
+      if (!webAccessible && !appAccessible) return "Cross";
+      if (appAccessible && !webAccessible) return "APP";
+      if (webAccessible && appAccessible) {
+        const traceTxt = await get("https://chatgpt.com/cdn-cgi/trace");
+        const tm = traceTxt ? traceTxt.match(/loc=([A-Z]{2})/) : null;
+        if (tm && tm[1]) return tm[1];
+        return "OK";
       }
-
-      if (
-        appAccessible &&
-        !webAccessible
-      ) {
-        return 'APP';
-      }
-
-      if (
-        webAccessible &&
-        appAccessible
-      ) {
-        const trace = await get(
-          'https://chatgpt.com/cdn-cgi/trace'
-        );
-
-        const m =
-          trace?.match(
-            /loc=([A-Z]{2})/
-          );
-
-        return m?.[1] || 'OK';
-      }
-
-      return 'Cross';
-
-    } catch (_) {
-      return 'Cross';
-    }
+      return "Cross";
+    } catch (e) { return "Cross"; }
   }
-
-  // =========================
-  // Gemini
-  // =========================
 
   async function checkGemini() {
     try {
-      const bodyRaw =
-        'f.req=[["K4WWud","[[0],[\\"en-US\\"]]",null,"generic"]]';
-
-      const txt = await post(
-        'https://gemini.google.com/_/BardChatUi/data/batchexecute',
-
-        bodyRaw,
-
-        {
-          'User-Agent': BASE_UA,
-          'Accept-Language': 'en-US',
-          'Content-Type':
-            'application/x-www-form-urlencoded'
-        }
-      );
-
-      if (!txt) {
-        return 'Cross';
-      }
-
-      let m = txt.match(
-        /"countryCode"\s*:\s*"([A-Z]{2})"/i
-      );
-
-      if (m) {
-        return m[1].toUpperCase();
-      }
-
-      m = txt.match(
-        /"requestCountry"\s*:\s*\{[^}]*"id"\s*:\s*"([A-Z]{2})"/i
-      );
-
-      if (m) {
-        return m[1].toUpperCase();
-      }
-
-      m = txt.match(
-        /\[\[\\?"([A-Z]{2})\\?",\\?"S/
-      );
-
-      return m
-        ? m[1].toUpperCase()
-        : 'OK';
-
-    } catch (_) {
-      return 'Cross';
-    }
+      const bodyRaw = 'f.req=[["K4WWud","[[0],[\\"en-US\\"]]",null,"generic"]]';
+      const txt = await post("https://gemini.google.com/_/BardChatUi/data/batchexecute", bodyRaw, { "User-Agent": BASE_UA, "Accept-Language": "en-US", "Content-Type": "application/x-www-form-urlencoded" });
+      if (!txt) return "Cross";
+      let m = txt.match(new RegExp('"countryCode"\\s*:\\s*"([A-Z]{2})"'));
+      if (m && m[1]) return m[1].toUpperCase();
+      return "OK";
+    } catch (e) { return "Cross"; }
   }
 
-  // =========================
-  // YouTube
-  // =========================
+  async function checkClaude() {
+    try {
+      const res = await getRaw("https://claude.ai/login", { "User-Agent": BASE_UA });
+      if (!res || res.status === 403) return "Cross";
+      const body = await res.text();
+      if (body.includes("App unavailable") || body.includes("unsupported_country")) return "Cross";
+      return "OK";
+    } catch (e) { return "Cross"; }
+  }
 
   async function checkYouTube() {
     try {
-      const body = await get(
-        'https://www.youtube.com/premium',
-        {
-          'User-Agent': BASE_UA,
-          'Accept-Language': 'en'
-        }
-      );
-
-      if (!body) {
-        return 'Cross';
-      }
-
-      if (
-        body.includes(
-          'www.google.cn'
-        )
-      ) {
-        return 'CN';
-      }
-
-      if (
-        /Premium is not available in your country|YouTube Premium is not available/i.test(
-          body
-        )
-      ) {
-        return 'Cross';
-      }
-
-      const m = body.match(
-        /"contentRegion"\s*:\s*"?([A-Z]{2})"?/
-      );
-
-      const region =
-        m?.[1]?.toUpperCase();
-
-      if (/ad-free/i.test(body)) {
-        return region || 'OK';
-      }
-
-      return region || 'Cross';
-
-    } catch (_) {
-      return 'Cross';
-    }
+      const body = await get("https://www.youtube.com/premium", { "User-Agent": BASE_UA, "Accept-Language": "en" });
+      if (!body) return "Cross";
+      if (body.includes("www.google.cn")) return "CN";
+      const isNotAvailable = body.includes("Premium is not available in your country") || body.includes("YouTube Premium is not available");
+      const m = body.match(new RegExp('"contentRegion"\\s*:\\s*"?([A-Z]{2})"?'));
+      const region = m && m[1] ? m[1].toUpperCase() : null;
+      const isAvailable = body.includes("ad-free") || body.includes("Ad-free");
+      if (isNotAvailable) return "Cross";
+      if (isAvailable && region) return region;
+      if (isAvailable && !region) return "OK";
+      if (region) return region;
+      return "Cross";
+    } catch (e) { return "Cross"; }
   }
-
-  // =========================
-  // Netflix
-  // =========================
 
   async function checkNetflix() {
     try {
-      const urls = [
-        'https://www.netflix.com/title/81280792',
-        'https://www.netflix.com/title/70143836'
-      ];
-
-      const bodies = await Promise.all(
-        urls.map(
-          u => safe(
-            () => get(
-              u,
-              {
-                'User-Agent': BASE_UA
-              }
-            )
-          )
-        )
-      );
-
-      if (
-        !bodies[0] &&
-        !bodies[1]
-      ) {
-        return 'Cross';
+      const titles = [ "https://www.netflix.com/title/81280792", "https://www.netflix.com/title/70143836" ];
+      const fetchTitle = async (url) => { try { return await get(url, { "User-Agent": BASE_UA }); } catch (e) { return ""; } };
+      const bodies = await Promise.all([ fetchTitle(titles[0]), fetchTitle(titles[1]) ]);
+      const t1 = bodies[0]; const t2 = bodies[1];
+      if (!t1 && !t2) return "Cross";
+      if (t1.includes("oh no!") && t2.includes("oh no!")) return "Popcorn";
+      for (const b of [t1, t2]) {
+        if (!b) continue;
+        const rm = b.match(new RegExp('"countryCode"\\s*:\\s*"?([A-Z]{2})"?'));
+        if (rm && rm[1]) return rm[1];
       }
-
-      if (
-        /oh no!/i.test(
-          bodies[0] || ''
-        ) &&
-        /oh no!/i.test(
-          bodies[1] || ''
-        )
-      ) {
-        return 'Popcorn';
-      }
-
-      for (const b of bodies) {
-        const m = b?.match(
-          /"countryCode"\s*:\s*"?([A-Z]{2})"?/
-        );
-
-        if (m) {
-          return m[1].toUpperCase();
-        }
-      }
-
-      return 'OK';
-
-    } catch (_) {
-      return 'Cross';
-    }
+      return "OK";
+    } catch (e) { return "Cross"; }
   }
-
-  // =========================
-  // TikTok
-  // =========================
 
   async function checkTikTok() {
     try {
-      let body = await get(
-        'https://www.tiktok.com/',
-        {
-          'User-Agent': BASE_UA
-        }
-      );
-
-      if (
-        body?.includes(
-          'Please wait...'
-        )
-      ) {
-        body = await get(
-          'https://www.tiktok.com/explore',
-          {
-            'User-Agent': BASE_UA
-          }
-        );
+      let body1 = await get("https://www.tiktok.com/", { "User-Agent": BASE_UA });
+      if (body1 && body1.includes("Please wait...")) {
+        try { body1 = await get("https://www.tiktok.com/explore", { "User-Agent": BASE_UA }); } catch (e2) {}
       }
-
-      let m = body?.match(
-        /"region"\s*:\s*"([A-Z]{2})"/
-      );
-
-      if (m) {
-        return m[1];
-      }
-
-      body = await get(
-        'https://www.tiktok.com/',
-        {
-          'User-Agent': BASE_UA,
-          'Accept-Language': 'en'
-        }
-      );
-
-      m = body?.match(
-        /"region"\s*:\s*"([A-Z]{2})"/
-      );
-
-      if (m) {
-        return m[1];
-      }
-
-      return body
-        ? 'OK'
-        : 'Cross';
-
-    } catch (_) {
-      return 'Cross';
-    }
+      const reg = new RegExp('"region"\\s*:\\s*"([A-Z]{2})"');
+      let m1 = body1 ? body1.match(reg) : null;
+      if (m1 && m1[1]) return m1[1];
+      const body2 = await get("https://www.tiktok.com/", { "User-Agent": BASE_UA, "Accept-Language": "en" });
+      const m2 = body2 ? body2.match(reg) : null;
+      if (m2 && m2[1]) return m2[1];
+      if (body1 || body2) return "OK";
+      return "Cross";
+    } catch (e) { return "Cross"; }
   }
 
-  // =========================
-  // IPAPI 风险
-  // =========================
-
-  async function fetchIPAPIRisk(ip) {
-    if (
-      !ip ||
-      ip === '获取失败'
-    ) {
-      return {
-        text: '获取失败',
-        col: C_RED,
-        sev: 4
-      };
-    }
-
+  async function checkTG() {
     try {
-      const res = await ctx.http.get(
-        `https://api.ipapi.is/?q=${encodeURIComponent(ip)}`,
-        withPolicy({
-          timeout: 5000
-        })
-      );
-
-      const j = jp(
-        await res.text()
-      );
-
-      const raw =
-        j?.company?.abuser_score;
-
-      if (
-        raw === undefined ||
-        raw === null
-      ) {
-        return {
-          text: '获取失败',
-          col: C_RED,
-          sev: 4
-        };
-      }
-
-      const m = String(raw).match(
-        /([0-9.]+)\s*\(([^)]+)\)/
-      );
-
-      if (!m) {
-        return {
-          text: '获取失败',
-          col: C_RED,
-          sev: 4
-        };
-      }
-
-      const pct =
-        Math.round(
-          Number(m[1]) * 10000
-        ) / 100;
-
-      const lv = m[2].trim();
-
-      const high =
-        /High|Very High/i.test(lv);
-
-      const elevated =
-        /Elevated/i.test(lv);
-
-      return {
-        text:
-          `${lv} (${pct}%) Abuser`,
-
-        col:
-          high
-            ? C_ORANGE
-            : elevated
-              ? C_YELLOW
-              : C_GREEN,
-
-        sev:
-          high
-            ? 3
-            : elevated
-              ? 2
-              : 0
-      };
-
-    } catch (_) {
-      return {
-        text: '获取失败',
-        col: C_RED,
-        sev: 4
-      };
-    }
+      const res = await getRaw("https://core.telegram.org", null, { timeout: 3000 });
+      if (res && res.status === 200) return { status: "大概率正常", col: C_GREEN };
+      return { status: "可能受限", col: C_ORANGE };
+    } catch(e) { return { status: "大概率正常", col: C_GREEN }; }
   }
 
-  // =========================
-  // 获取本地和落地信息
-  // =========================
-
-  const localInfo =
-    await fetchLocalInfo();
-
-  const landingInfo =
-    await fetchLandingInfo();
-
-  // =========================
-  // IPPure 风险
-  // =========================
-
-  let riskIPPure =
-    landingInfo.fraudScore !== undefined
-      ? riskFromScore(
-          landingInfo.fraudScore
-        )
-      : null;
-
-  if (!riskIPPure) {
-    if (
-      landingInfo.ip ===
-      '获取失败'
-    ) {
-      riskIPPure = {
-        text: '获取失败',
-        col: C_RED,
-        sev: 4
-      };
-    } else {
-      riskIPPure = {
-        text: '未检测',
-        col: C_SUB,
-        sev: 0
-      };
-    }
+  async function checkProxy(ip) {
+    try {
+      if (!ip || ip === "获取失败") return { status: "未知", col: C_SUB, riskScore: 0 };
+      const res = await getRaw(`http://proxycheck.io/v2/${ip}?vpn=1&asn=1`, null, { timeout: 3000 });
+      const j = JSON.parse(await res.text());
+      const node = j[ip];
+      if (node) {
+        let type = node.type || "Unknown";
+        if (type.length > 8) type = type.substring(0,8) + ".";
+        const risk = node.risk || 0;
+        return { status: `${type}/${risk}`, col: risk < 33 ? C_GREEN : C_ORANGE, riskScore: risk };
+      }
+      return { status: "正常", col: C_GREEN, riskScore: 0 };
+    } catch(e) { return { status: "获取失败", col: C_SUB, riskScore: 0 }; }
   }
 
-  // =========================
-  // IPAPI 风险
-  //
-  // 只有拿到真实落地 IP 后才查询。
-  //
-  // 查询失败：
-  // 获取失败
-  //
-  // 不再伪装成：
-  // 低危 0%
-  // =========================
+  async function checkBlackbox(ip) {
+    try {
+      if (!ip || ip === "获取失败") return { status: "未知", col: C_SUB, riskScore: 0 };
+      const res = await getRaw(`https://blackbox.ipinfo.app/lookup/${ip}`, null, { timeout: 3000 });
+      const txt = (await res.text()).trim();
+      if (txt === "N") return { status: "正常", col: C_GREEN, riskScore: 0 };
+      if (txt === "Y") return { status: "异常", col: C_RED, riskScore: 30 };
+      return { status: "未知", col: C_SUB, riskScore: 0 };
+    } catch(e) { return { status: "获取失败", col: C_SUB, riskScore: 0 }; }
+  }
 
-  const riskIpapi =
-    landingInfo.ip === '获取失败'
-      ? {
-          text: '获取失败',
-          col: C_RED,
-          sev: 4
+  async function checkIpapi(ip) {
+    try {
+      if (!ip || ip === "获取失败") return { status: "未知", col: C_SUB, riskScore: 0 };
+      const res = await getRaw(`https://api.ipapi.is/?q=${ip}`, null, { timeout: 4000 });
+      const j = JSON.parse(await res.text());
+      let pct = 0;
+      if (j.company && j.company.abuser_score) {
+        const m = String(j.company.abuser_score).match(new RegExp("([0-9.]+)"));
+        if (m) pct = Number(m[1]) * 100;
+      }
+      let val = pct.toFixed(2) + "%";
+      if (val === "0.00%") val = "0.01%";
+      return { status: val, col: pct > 5 ? C_RED : (pct > 1 ? C_ORANGE : C_GREEN), riskScore: pct };
+    } catch(e) { return { status: "获取失败", col: C_SUB, riskScore: 0 }; }
+  }
+
+  async function checkNetCoffee(ip) {
+    try {
+      if (!ip || ip === "获取失败") return { status: "未知", col: C_SUB };
+      const res = await getRaw(`https://ip.net.coffee/api/ip/`, null, { timeout: 3000 });
+      const j = JSON.parse(await res.text());
+      if (j && j.trust !== undefined) return { status: `信任 ${j.trust}`, col: j.trust >= 80 ? C_GREEN : C_ORANGE };
+      return { status: "信任 100", col: C_GREEN };
+    } catch(e) { return { status: "信任 100", col: C_GREEN }; }
+  }
+
+  const fmtISP = (isp) => {
+    if (!isp) return "未知";
+    const s = String(isp).toLowerCase();
+    if (s.includes("移动") || s.includes("mobile") || s.includes("cmcc")) return "中国移动";
+    if (s.includes("电信") || s.includes("telecom") || s.includes("chinanet")) return "中国电信";
+    if (s.includes("联通") || s.includes("unicom")) return "中国联通";
+    if (s.includes("广电") || s.includes("broadcast") || s.includes("cbn")) return "中国广电";
+    return isp;
+  };
+
+  const getFlagEmoji = (country) => {
+    if (!country) return "🌐";
+    if (country.includes("中国")) return "🇨🇳";
+    if (country.includes("日本")) return "🇯🇵";
+    if (country.includes("美国")) return "🇺🇸";
+    if (country.includes("香港")) return "🇭🇰";
+    if (country.includes("台湾")) return "🇹🇼";
+    if (country.includes("新加坡")) return "🇸🇬";
+    if (country.includes("英国")) return "🇬🇧";
+    return "📍";
+  };
+
+  let lIp = "获取失败", lLoc = "未知位置", lIsp = "未知运营商";
+  let nIp = "获取失败", nLoc = "未知位置", nativeText = "未知";
+  let ippureData = { status: "未知", col: C_SUB, riskScore: 0 };
+
+  await Promise.all([
+    (async () => {
+      try {
+        const lRes = await ctx.http.get("https://myip.ipip.net/json", { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 3000, policy: "DIRECT" });
+        const body = JSON.parse(await lRes.text());
+        if (body?.data) {
+          lIp = body.data.ip || "获取失败";
+          const locArr = body.data.location || [];
+          lLoc = `${getFlagEmoji(locArr[0])} ${locArr[1] || ""} ${locArr[2] || ""}`.trim();
+          lIsp = fmtISP(locArr[4] || locArr[3]);
         }
-      : await fetchIPAPIRisk(
-          landingInfo.ip
-        );
-
-  // =========================
-  // 服务解锁检测
-  // =========================
-
-  const [
-    gptStatus,
-    geminiStatus,
-    youtubeStatus,
-    netflixStatus,
-    tiktokStatus
-  ] = await Promise.all([
-    checkChatGPT(),
-    checkGemini(),
-    checkYouTube(),
-    checkNetflix(),
-    checkTikTok()
+      } catch (e) {}
+    })(),
+    (async () => {
+      try {
+        const res = await ctx.http.get("https://my.ippure.com/v1/info", withPolicy({ timeout: 4000 }));
+        if (res && res.status === 200) {
+          const d = JSON.parse(await res.text());
+          nIp = d.ip || "获取失败";
+          let code = d.countryCode || "";
+          if (code.toUpperCase() === "TW") code = "CN";
+          const flag = code ? String.fromCodePoint(...code.toUpperCase().split("").map(c => 127397 + c.charCodeAt())) : "🌍";
+          nLoc = `${flag} ${d.country || ""} ${d.city || ""}`.trim() || "未知位置";
+          nativeText = d.isResidential === true ? "🏠 住宅宽带" : d.isResidential === false ? "🏢 商业机房" : "未知";
+          
+          const risk = ti(d.fraudScore);
+          if (risk !== null) {
+            let col = C_GREEN;
+            if (risk > 60) col = C_RED;
+            else if (risk > 0) col = C_ORANGE;
+            ippureData = { status: risk === 0 ? "纯净" : `风险 ${risk}`, col: col, riskScore: risk };
+          }
+        }
+      } catch (e) {}
+    })()
   ]);
 
-  const landingSuccess =
-    landingInfo.ip !== '获取失败';
+  const proxySuccess = nIp !== "获取失败";
 
-  const getUnlockColor =
-    status =>
-      (
-        status === 'Cross' ||
-        status === 'CN'
-      )
-        ? C_RED
-        : C_GREEN;
+  let gptStatus="Cross", geminiStatus="Cross", claudeStatus="Cross", youtubeStatus="Cross", netflixStatus="Cross", tiktokStatus="Cross";
+  let tgData={status:"未知",col:C_SUB}, ipapiData={status:"未知",col:C_SUB}, proxyData={status:"未知",col:C_SUB}, blackboxData={status:"未知",col:C_SUB}, netCoffeeData={status:"未知",col:C_SUB};
 
-  const getUnlockResult =
-    status =>
-      status === 'Cross'
-        ? '不可用'
-        : status === 'CN'
-          ? 'CN'
-          : status;
-
-  // =========================
-  // 风险等级
-  // =========================
-
-  const riskGrades =
-    landingSuccess
-      ? [
-          {
-            sev: riskIPPure.sev,
-            t:
-              `IPPure: ${riskIPPure.text}`
-          },
-
-          {
-            sev: riskIpapi.sev,
-            t:
-              `ipapi: ${riskIpapi.text}`
-          },
-
-          {
-            sev: 0,
-            t:
-              'IP2Location: 未检测'
-          },
-
-          {
-            sev: 0,
-            t:
-              'DB-IP: 未检测'
-          },
-
-          {
-            sev: 0,
-            t:
-              'ipregistry: 未检测'
-          }
-        ]
-      : [
-          {
-            sev: 4,
-            t:
-              '落地IP：获取失败'
-          }
-        ];
-
-  let maxSev = 0;
-
-  riskGrades.forEach(
-    g => {
-      if (g.sev > maxSev) {
-        maxSev = g.sev;
-      }
-    }
-  );
-
-  function sevIcon(sev) {
-    if (sev >= 4) {
-      return 'xmark.shield.fill';
-    }
-
-    if (sev >= 1) {
-      return 'exclamationmark.shield.fill';
-    }
-
-    return 'checkmark.shield.fill';
+  if (proxySuccess) {
+    [
+      gptStatus, geminiStatus, claudeStatus, youtubeStatus, netflixStatus, tiktokStatus,
+      tgData, ipapiData, proxyData, blackboxData, netCoffeeData
+    ] = await Promise.all([
+      checkChatGPT(), checkGemini(), checkClaude(), checkYouTube(), checkNetflix(), checkTikTok(),
+      checkTG(), checkIpapi(nIp), checkProxy(nIp), checkBlackbox(nIp), checkNetCoffee(nIp)
+    ]);
   }
 
-  function sevText(sev) {
-    if (sev >= 4) {
-      return '极高风险';
-    }
+  const totalRiskScore = Math.round((ippureData.riskScore || 0) + (ipapiData.riskScore || 0) + (proxyData.riskScore || 0));
+  const topRiskTxt = `风险 ${totalRiskScore}`;
+  const topRiskCol = totalRiskScore === 0 ? C_GREEN : (totalRiskScore > 30 ? C_RED : C_ORANGE);
+  const topRiskIcon = totalRiskScore === 0 ? "checkmark.shield.fill" : "exclamationmark.shield.fill";
 
-    if (sev >= 3) {
-      return '高风险';
-    }
+  const SMALL_FONT = 9.5;
+  const SMALL_ICON = 11;
 
-    if (sev >= 2) {
-      return '中等风险';
-    }
-
-    if (sev >= 1) {
-      return '中低风险';
-    }
-
-    return '纯净低危';
-  }
-
-  function sevColor(sev) {
-    if (sev >= 4) {
-      return C_RED;
-    }
-
-    if (sev >= 3) {
-      return C_ORANGE;
-    }
-
-    if (sev >= 1) {
-      return C_YELLOW;
-    }
-
-    return C_GREEN;
-  }
-
-  const summaryIcon =
-    sevIcon(maxSev);
-
-  const summaryTxt =
-    sevText(maxSev);
-
-  const summaryCol =
-    sevColor(maxSev);
-
-  // =========================
-  // UI 参数
-  // =========================
-
-  const SMALL_FONT = 10;
-  const SMALL_ICON = 12;
-
-  function smallInfoRow(
-    iconName,
-    label,
-    value,
-    valueCol = C_MAIN
-  ) {
+  function smallInfoRow(iconName, label, value, valueCol) {
+    const finalCol = valueCol || C_MAIN;
     return {
-      type: 'stack',
-      direction: 'row',
-      alignItems: 'center',
-      gap: 5,
-
+      type: "stack", direction: "row", alignItems: "center", gap: 5,
       children: [
-        {
-          type: 'image',
-          src:
-            `sf-symbol:${iconName}`,
-          color: C_ICON,
-          width: SMALL_ICON,
-          height: SMALL_ICON
-        },
-
-        {
-          type: 'text',
-          text: label,
-          font: {
-            size: SMALL_FONT
-          },
-          textColor: C_SUB
-        },
-
-        {
-          type: 'spacer'
-        },
-
-        {
-          type: 'text',
-          text: value,
-          font: {
-            size: SMALL_FONT,
-            weight: 'bold'
-          },
-          textColor: valueCol,
-          maxLines: 1,
-          lineBreakMode: 'tail'
-        }
+        { type: "image", src: `sf-symbol:${iconName}`, color: C_ICON, width: SMALL_ICON, height: SMALL_ICON },
+        { type: "text", text: label, font: { size: SMALL_FONT }, textColor: C_SUB },
+        { type: "spacer" },
+        { type: "text", text: value, font: { size: SMALL_FONT, weight: "bold" }, textColor: finalCol, maxLines: 1 }
       ]
     };
   }
 
-  function UnlockRow(
-    name,
-    status
-  ) {
-    const iconName =
-      (
-        status === 'Cross' ||
-        status === 'CN'
-      )
-        ? 'xmark.circle.fill'
-        : 'checkmark.circle.fill';
-
-    const iconCol =
-      getUnlockColor(status);
-
+  function ItemRow(name, status, color, iconName, iconColor) {
     return {
-      type: 'stack',
-      direction: 'row',
-      alignItems: 'center',
-      gap: 4,
-
+      type: "stack", direction: "row", alignItems: "center", gap: 4,
       children: [
-        {
-          type: 'image',
-          src:
-            `sf-symbol:${iconName}`,
-          color: iconCol,
-          width: SMALL_ICON,
-          height: SMALL_ICON
-        },
-
-        {
-          type: 'text',
-          text: name,
-          font: {
-            size: SMALL_FONT,
-            weight: 'medium'
-          },
-          textColor: C_MAIN
-        },
-
-        {
-          type: 'spacer'
-        },
-
-        {
-          type: 'text',
-          text:
-            getUnlockResult(status),
-          font: {
-            size: SMALL_FONT,
-            weight: 'bold'
-          },
-          textColor: iconCol,
-          maxLines: 1
-        }
+        { type: "image", src: `sf-symbol:${iconName}`, color: iconColor, width: SMALL_ICON, height: SMALL_ICON },
+        { type: "text", text: name, font: { size: SMALL_FONT, weight: "medium" }, textColor: C_MAIN },
+        { type: "spacer" },
+        { type: "text", text: status, font: { size: SMALL_FONT, weight: "bold" }, textColor: color, maxLines: 1 }
       ]
     };
   }
 
-  function ScoreRow(grade) {
-    const col =
-      sevColor(grade.sev);
-
-    const parts =
-      grade.t.split(': ');
-
-    return {
-      type: 'stack',
-      direction: 'row',
-      alignItems: 'center',
-      gap: 4,
-
-      children: [
-        {
-          type: 'image',
-          src:
-            `sf-symbol:${sevIcon(grade.sev)}`,
-          color: col,
-          width: SMALL_ICON,
-          height: SMALL_ICON
-        },
-
-        {
-          type: 'text',
-          text:
-            parts[0] || grade.t,
-          font: {
-            size: SMALL_FONT
-          },
-          textColor: C_SUB
-        },
-
-        {
-          type: 'spacer'
-        },
-
-        {
-          type: 'text',
-          text:
-            parts[1] || '',
-          font: {
-            size: SMALL_FONT,
-            weight: 'bold'
-          },
-          textColor: col,
-          maxLines: 1,
-          lineBreakMode: 'tail'
-        }
-      ]
-    };
+  function UnlockRow(name, status) {
+    let icon = "checkmark.circle.fill";
+    let col = C_GREEN;
+    let text = status === "OK" ? "OK" : status;
+    if (status === "Cross") { icon = "xmark.circle.fill"; col = C_RED; text = "不可用"; }
+    else if (status === "CN") { icon = "xmark.circle.fill"; col = C_RED; text = "送中"; }
+    else if (status === "Popcorn") { text = "仅自制"; }
+    return ItemRow(name, text, col, icon, col);
   }
 
-  // =========================
-  // 时间
-  // =========================
+  function RiskRow(name, data) {
+    let icon = "checkmark.circle.fill";
+    if (data.col === C_RED) icon = "xmark.circle.fill";
+    else if (data.col === C_ORANGE || data.col === C_YELLOW) icon = "exclamationmark.circle.fill";
+    else if (data.col === C_SUB) icon = "questionmark.circle.fill";
+    return ItemRow(name, data.status, data.col, icon, data.col);
+  }
 
   const now = new Date();
-
-  const timeStr =
-    `${String(now.getHours()).padStart(2, '0')}:` +
-    `${String(now.getMinutes()).padStart(2, '0')}`;
-
-  const isLarge =
-    widgetFamily === 'systemLarge';
-
-  const WIDGET_PADDING =
-    isLarge
-      ? [10, 12]
-      : [8, 10];
-
-  const HEADER_FONT = 13;
-  const HEADER_ICON = 11;
-  const HEADER_TIME_FONT = 10;
-  const HEADER_GAP = 4;
-
-  const TOP_GAP = 3;
-  const INFO_GAP = 2.5;
-  const BOTTOM_GAP_LEFT = 2;
-  const BOTTOM_GAP_RIGHT = 2;
+  const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const isLarge = widgetFamily === "systemLarge";
+  const WIDGET_PADDING = isLarge ? [10, 12] : [8, 10];
   const COL_GAP = 12;
 
-  // =========================
-  // 左侧：本地出口
-  // =========================
-
-  const leftColumn = {
-    type: 'stack',
-    direction: 'column',
-    gap: INFO_GAP,
-    flex: 1,
-
-    children: [
-      smallInfoRow(
-        'house.fill',
-        '本地IP：',
-        localInfo.ip,
-        C_GREEN
-      ),
-
-      smallInfoRow(
-        'mappin.and.ellipse',
-        '本地位置：',
-        localInfo.loc
-      ),
-
-      smallInfoRow(
-        'simcard.fill',
-        '本地运营商：',
-        localInfo.isp
-      )
-    ]
-  };
-
-  // =========================
-  // 右侧：落地出口
-  // =========================
-
-  const rightColumn = {
-    type: 'stack',
-    direction: 'column',
-    gap: INFO_GAP,
-    flex: 1,
-
-    children: [
-      smallInfoRow(
-        'network',
-        '落地IP：',
-        landingInfo.ip,
-        landingSuccess
-          ? C_GREEN
-          : C_RED
-      ),
-
-      smallInfoRow(
-        'map.fill',
-        '落地位置：',
-        landingInfo.loc,
-        landingSuccess
-          ? C_MAIN
-          : C_RED
-      ),
-
-      smallInfoRow(
-        'building.2.fill',
-        '原生属性：',
-        landingInfo.native || '未知',
-        landingSuccess
-          ? C_MAIN
-          : C_RED
-      )
-    ]
-  };
-
-  // =========================
-  // 左侧：解锁检测
-  // =========================
-
-  const unlockLeft = {
-    type: 'stack',
-    direction: 'column',
-    gap: BOTTOM_GAP_LEFT,
-
-    children: [
-      UnlockRow(
-        'GPT',
-        gptStatus
-      ),
-
-      UnlockRow(
-        'Gemini',
-        geminiStatus
-      ),
-
-      UnlockRow(
-        'YouTube',
-        youtubeStatus
-      ),
-
-      UnlockRow(
-        'Netflix',
-        netflixStatus
-      ),
-
-      UnlockRow(
-        'TikTok',
-        tiktokStatus
-      )
-    ]
-  };
-
-  // =========================
-  // 右侧：风险检测
-  // =========================
-
-  const unlockRight = {
-    type: 'stack',
-    direction: 'column',
-    gap: BOTTOM_GAP_RIGHT,
-
-    children:
-      riskGrades.map(
-        ScoreRow
-      )
-  };
-
-  const unlockSection = {
-    type: 'stack',
-    direction: 'row',
-    gap: COL_GAP,
-
-    children: [
-      unlockLeft,
-      unlockRight
-    ]
-  };
-
-  // =========================
-  // 最终 Widget
-  // =========================
-
   return {
-    type: 'widget',
-
+    type: "widget",
     padding: WIDGET_PADDING,
-
-    gap: TOP_GAP,
-
+    gap: 3,
     backgroundColor: BG_COLOR,
-
     children: [
-
-      // -------------------------
-      // Header
-      // -------------------------
-
       {
-        type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        gap: HEADER_GAP,
-
+        type: "stack", direction: "row", alignItems: "center", gap: 6,
         children: [
+          { type: "text", text: "数据中心 (DCH)", font: { size: 13, weight: "heavy" }, textColor: C_TITLE },
           {
-            type: 'text',
-
-            text:
-              `数据中心 (${isDirectPolicy ? 'DIRECT' : policy})`,
-
-            font: {
-              size: HEADER_FONT,
-              weight: 'heavy'
-            },
-
-            textColor: C_TITLE,
-
-            flex: 1
-          },
-
-          {
-            type: 'image',
-
-            src:
-              `sf-symbol:${summaryIcon}`,
-
-            color: summaryCol,
-
-            width: 12,
-            height: 12
-          },
-
-          {
-            type: 'text',
-
-            text: summaryTxt,
-
-            font: {
-              size: 10,
-              weight: 'bold'
-            },
-
-            textColor: summaryCol
-          },
-
-          {
-            type: 'spacer'
-          },
-
-          {
-            type: 'stack',
-            direction: 'row',
-            alignItems: 'center',
-            gap: 3,
-
+            type: "stack", direction: "row", alignItems: "center", gap: 2,
             children: [
-              {
-                type: 'image',
-
-                src:
-                  'sf-symbol:arrow.clockwise',
-
-                color: C_SUB,
-
-                width: HEADER_ICON,
-                height: HEADER_ICON
-              },
-
-              {
-                type: 'text',
-
-                text: timeStr,
-
-                font: {
-                  size: HEADER_TIME_FONT
-                },
-
-                textColor: C_SUB
-              }
+              { type: "image", src: `sf-symbol:${topRiskIcon}`, color: topRiskCol, width: 12, height: 12 },
+              { type: "text", text: topRiskTxt, font: { size: 11, weight: "bold" }, textColor: topRiskCol }
+            ]
+          },
+          { type: "spacer" },
+          {
+            type: "stack", direction: "row", alignItems: "center", gap: 2,
+            children: [
+              { type: "image", src: "sf-symbol:exclamationmark.circle.fill", color: C_ORANGE, width: 12, height: 12 },
+              { type: "text", text: policy || "默认节点", font: { size: 11, weight: "bold" }, textColor: C_ORANGE, maxLines: 1 }
+            ]
+          },
+          { type: "spacer" },
+          {
+            type: "stack", direction: "row", alignItems: "center", gap: 2,
+            children: [
+              { type: "image", src: "sf-symbol:arrow.clockwise", color: C_SUB, width: 11, height: 11 },
+              { type: "text", text: timeStr, font: { size: 11 }, textColor: C_SUB }
             ]
           }
         ]
       },
-
-      // -------------------------
-      // 本地 / 落地信息
-      // -------------------------
-
       {
-        type: 'stack',
-        direction: 'row',
-        gap: COL_GAP,
-
+        type: "stack", direction: "row", gap: COL_GAP,
         children: [
-          leftColumn,
-          rightColumn
+          {
+            type: "stack", direction: "column", gap: 2.5, flex: 1,
+            children: [
+              smallInfoRow("house.fill", "本地IP:", lIp, C_GREEN),
+              smallInfoRow("person.fill", "本地位置:", lLoc),
+              smallInfoRow("simcard.fill", "本地运营商:", lIsp)
+            ]
+          },
+          {
+            type: "stack", direction: "column", gap: 2.5, flex: 1,
+            children: [
+              smallInfoRow("globe", "落地IP:", nIp, proxySuccess ? C_GREEN : C_RED),
+              smallInfoRow("map.fill", "落地位置:", nLoc, proxySuccess ? C_MAIN : C_RED),
+              smallInfoRow("building.2.fill", "原生属性:", nativeText, proxySuccess ? C_MAIN : C_RED)
+            ]
+          }
         ]
       },
-
-      // -------------------------
-      // 分隔线
-      // -------------------------
-
+      { type: "stack", height: 0.5, backgroundColor: { light: "rgba(0,0,0,0.08)", dark: "rgba(255,255,255,0.12)" } },
       {
-        type: 'stack',
-
-        height: 0.5,
-
-        backgroundColor: {
-          light:
-            'rgba(0,0,0,0.08)',
-
-          dark:
-            'rgba(255,255,255,0.12)'
-        }
-      },
-
-      // -------------------------
-      // 解锁 / 风险
-      // -------------------------
-
-      unlockSection
+        type: "stack", direction: "row", gap: COL_GAP,
+        children: [
+          {
+            type: "stack", direction: "column", gap: 2, flex: 1,
+            children: [
+              UnlockRow("GPT", gptStatus),
+              UnlockRow("Claude", claudeStatus),
+              UnlockRow("Gemini", geminiStatus),
+              UnlockRow("YouTube", youtubeStatus),
+              UnlockRow("奈飞", netflixStatus),
+              UnlockRow("TikTok", tiktokStatus)
+            ]
+          },
+          {
+            type: "stack", direction: "column", gap: 2, flex: 1,
+            children: [
+              RiskRow("TG 预测", tgData),
+              RiskRow("IPPure", ippureData),
+              RiskRow("ipapi", ipapiData),
+              RiskRow("NetCoffee", netCoffeeData),
+              RiskRow("Proxy...", proxyData),
+              RiskRow("Blackbox", blackboxData)
+            ]
+          }
+        ]
+      }
     ]
   };
 }
