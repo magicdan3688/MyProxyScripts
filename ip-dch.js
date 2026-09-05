@@ -156,7 +156,7 @@ export default async function(ctx) {
   }
 
   // =========================
-  // IPPure 展示文本 (不再计算 sev)
+  // IPPure 展示文本 (中性化处理)
   // =========================
   function formatIPPure(score) {
     if (score === null || score === undefined) return { text: '获取失败', col: C_SUB };
@@ -202,23 +202,103 @@ export default async function(ctx) {
     }
   }
 
-  // 服务解锁检测省略(保留原版逻辑)
-  async function checkChatGPT() { /*...*/ return 'OK'; }
-  async function checkGemini() { /*...*/ return 'OK'; }
-  async function checkYouTube() { /*...*/ return 'OK'; }
-  async function checkNetflix() { /*...*/ return 'OK'; }
-  async function checkTikTok() { /*...*/ return 'OK'; }
+  // =========================
+  // 服务解锁检测
+  // =========================
+  async function checkChatGPT() {
+    try {
+      const headRes = await getRaw('https://chatgpt.com', { 'User-Agent': BASE_UA }, { redirect: 'manual' });
+      const webAccessible = !!headRes;
+      const iosRes = await getRaw('https://ios.chat.openai.com', { 'User-Agent': BASE_UA });
+      const iosBody = iosRes ? await iosRes.text() : '';
+      const cfDetails = jp(iosBody)?.cf_details || '';
+      const blocked = !iosBody || iosBody.includes('blocked_why_headline') || iosBody.includes('unsupported_country_region_territory') || cfDetails.includes('(1)') || cfDetails.includes('(2)');
+      const appAccessible = !!iosBody && !blocked;
 
-  // 模拟耗时，由于代码太长此处直接引用原版解锁方法
+      if (!webAccessible && !appAccessible) return 'Cross';
+      if (appAccessible && !webAccessible) return 'APP';
+      if (webAccessible && appAccessible) {
+        const trace = await get('https://chatgpt.com/cdn-cgi/trace');
+        const m = trace?.match(/loc=([A-Z]{2})/);
+        return m?.[1] || 'OK';
+      }
+      return 'Cross';
+    } catch (_) { return 'Cross'; }
+  }
+
+  async function checkGemini() {
+    try {
+      const bodyRaw = 'f.req=[["K4WWud","[[0],[\\"en-US\\"]]",null,"generic"]]';
+      const txt = await post('https://gemini.google.com/_/BardChatUi/data/batchexecute', bodyRaw, { 'User-Agent': BASE_UA, 'Accept-Language': 'en-US', 'Content-Type': 'application/x-www-form-urlencoded' });
+      if (!txt) return 'Cross';
+      let m = txt.match(/"countryCode"\s*:\s*"([A-Z]{2})"/i);
+      if (m) return m[1].toUpperCase();
+      m = txt.match(/"requestCountry"\s*:\s*\{[^}]*"id"\s*:\s*"([A-Z]{2})"/i);
+      if (m) return m[1].toUpperCase();
+      m = txt.match(/\[\[\\?"([A-Z]{2})\\?",\\?"S/);
+      return m ? m[1].toUpperCase() : 'OK';
+    } catch (_) { return 'Cross'; }
+  }
+
+  async function checkYouTube() {
+    try {
+      const body = await get('https://www.youtube.com/premium', { 'User-Agent': BASE_UA, 'Accept-Language': 'en' });
+      if (!body) return 'Cross';
+      if (body.includes('www.google.cn')) return 'CN';
+      if (/Premium is not available in your country|YouTube Premium is not available/i.test(body)) return 'Cross';
+      const m = body.match(/"contentRegion"\s*:\s*"?([A-Z]{2})"?/);
+      const region = m?.[1]?.toUpperCase();
+      if (/ad-free/i.test(body)) return region || 'OK';
+      return region || 'Cross';
+    } catch (_) { return 'Cross'; }
+  }
+
+  async function checkNetflix() {
+    try {
+      const urls = ['https://www.netflix.com/title/81280792', 'https://www.netflix.com/title/70143836'];
+      const bodies = await Promise.all(urls.map(u => safe(() => get(u, { 'User-Agent': BASE_UA }))));
+      if (!bodies[0] && !bodies[1]) return 'Cross';
+      if (/oh no!/i.test(bodies[0] || '') && /oh no!/i.test(bodies[1] || '')) return 'Popcorn';
+      for (const b of bodies) {
+        const m = b?.match(/"countryCode"\s*:\s*"?([A-Z]{2})"?/);
+        if (m) return m[1].toUpperCase();
+      }
+      return 'OK';
+    } catch (_) { return 'Cross'; }
+  }
+
+  async function checkTikTok() {
+    try {
+      let body = await get('https://www.tiktok.com/', { 'User-Agent': BASE_UA });
+      if (body?.includes('Please wait...')) body = await get('https://www.tiktok.com/explore', { 'User-Agent': BASE_UA });
+      let m = body?.match(/"region"\s*:\s*"([A-Z]{2})"/);
+      if (m) return m[1];
+      body = await get('https://www.tiktok.com/', { 'User-Agent': BASE_UA, 'Accept-Language': 'en' });
+      m = body?.match(/"region"\s*:\s*"([A-Z]{2})"/);
+      if (m) return m[1];
+      return body ? 'OK' : 'Cross';
+    } catch (_) { return 'Cross'; }
+  }
+
+  // =========================
+  // 执行并发请求
+  // =========================
   const localInfo = await fetchLocalInfo();
   const landingInfo = await fetchLandingInfo();
   const landingSuccess = landingInfo.ip !== '获取失败';
 
+  const [riskIpapi, gptStatus, geminiStatus, youtubeStatus, netflixStatus, tiktokStatus] = await Promise.all([
+    fetchIPAPIRisk(landingInfo.ip),
+    checkChatGPT(),
+    checkGemini(),
+    checkYouTube(),
+    checkNetflix(),
+    checkTikTok()
+  ]);
+
   const riskIPPure = landingSuccess && landingInfo.fraudScore !== undefined 
       ? formatIPPure(landingInfo.fraudScore) 
       : { text: '未检测', col: C_SUB };
-
-  const riskIpapi = await fetchIPAPIRisk(landingInfo.ip);
 
   // =========================
   // 核心：综合风险引擎 (calculateRisk)
@@ -234,26 +314,23 @@ export default async function(ctx) {
     
     let sev = 0;
     
-    // 基础证据加权
     if (isRes) {
       if (score >= 95) sev = 4;
       else if (score >= 85) sev = 3;
       else if (score >= 70) sev = 2;
       else if (score >= 50) sev = 1;
-      else sev = 0; // SoftBank(6) 和 Rakuten(34) 将落在 0 极低风险
+      else sev = 0; 
     } else {
       if (score >= 95) sev = 4;
       else if (score >= 80) sev = 3;
       else if (score >= 60) sev = 2;
-      else if (score >= 20) sev = 1; // 机房基准分数增加
+      else if (score >= 20) sev = 1; 
       else sev = 0; 
     }
 
-    // 强恶意证据一票否决
     if (ipapiRes.isTor) sev = 4;
     else if (ipapiRes.isAbuser) sev = Math.max(sev, 3);
 
-    // 映射等级文本
     let text = '纯净低危';
     if (sev === 4) text = '极高风险';
     else if (sev === 3) text = '高风险';
@@ -261,13 +338,11 @@ export default async function(ctx) {
     else if (sev === 1) text = isRes ? '低风险' : '中低风险';
     else text = '极低风险';
 
-    // 计算置信度
-    let conf = 54; // 基础获得 IP 且识别了网络类型
+    let conf = 54; 
     if (hasIPPure) conf += 28;
     if (ipapiRes && !['获取失败', '未检测'].includes(ipapiRes.text)) conf += 16;
     conf = Math.min(98, conf);
 
-    // 图标与颜色
     let col = C_GREEN;
     let icon = 'checkmark.shield.fill';
     if (sev >= 4) { col = C_RED; icon = 'xmark.shield.fill'; }
@@ -280,19 +355,8 @@ export default async function(ctx) {
   const finalRisk = calculateRisk(landingInfo, riskIPPure, riskIpapi);
 
   // =========================
-  // 构建右下角证据列表
-  // =========================
-  const evidenceList = [
-    { text: `IPPure: ${riskIPPure.text}`, col: riskIPPure.col, icon: riskIPPure.col === C_SUB ? 'circle.dashed' : 'checkmark.circle.fill' },
-    { text: `ipapi: ${riskIpapi.text}`, col: riskIpapi.col, icon: riskIpapi.col === C_SUB ? 'circle.dashed' : 'checkmark.circle.fill' },
-    { text: 'IP2Location: 未检测', col: C_SUB, icon: 'circle.dashed' },
-    { text: 'DB-IP: 未检测', col: C_SUB, icon: 'circle.dashed' },
-    { text: 'ipregistry: 未检测', col: C_SUB, icon: 'circle.dashed' }
-  ];
-
-  // -------------------------
   // UI 渲染辅助
-  // -------------------------
+  // =========================
   const SMALL_FONT = 10;
   const SMALL_ICON = 12;
 
@@ -304,6 +368,23 @@ export default async function(ctx) {
         { type: 'text', text: label, font: { size: SMALL_FONT }, textColor: C_SUB },
         { type: 'spacer' },
         { type: 'text', text: value, font: { size: SMALL_FONT, weight: 'bold' }, textColor: valueCol, maxLines: 1, lineBreakMode: 'tail' }
+      ]
+    };
+  }
+
+  const getUnlockColor = status => (status === 'Cross' || status === 'CN') ? C_RED : C_GREEN;
+  const getUnlockResult = status => status === 'Cross' ? '不可用' : status === 'CN' ? 'CN' : status;
+
+  function UnlockRow(name, status) {
+    const iconName = (status === 'Cross' || status === 'CN') ? 'xmark.circle.fill' : 'checkmark.circle.fill';
+    const iconCol = getUnlockColor(status);
+    return {
+      type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
+      children: [
+        { type: 'image', src: `sf-symbol:${iconName}`, color: iconCol, width: SMALL_ICON, height: SMALL_ICON },
+        { type: 'text', text: name, font: { size: SMALL_FONT, weight: 'medium' }, textColor: C_MAIN },
+        { type: 'spacer' },
+        { type: 'text', text: getUnlockResult(status), font: { size: SMALL_FONT, weight: 'bold' }, textColor: iconCol, maxLines: 1 }
       ]
     };
   }
@@ -348,15 +429,33 @@ export default async function(ctx) {
     ]
   };
 
+  const unlockLeft = {
+    type: 'stack', direction: 'column', gap: 2, flex: 1,
+    children: [
+      UnlockRow('GPT', gptStatus),
+      UnlockRow('Gemini', geminiStatus),
+      UnlockRow('YouTube', youtubeStatus),
+      UnlockRow('Netflix', netflixStatus),
+      UnlockRow('TikTok', tiktokStatus)
+    ]
+  };
+
+  const evidenceList = [
+    { text: `IPPure: ${riskIPPure.text}`, col: riskIPPure.col, icon: riskIPPure.col === C_SUB ? 'circle.dashed' : 'checkmark.circle.fill' },
+    { text: `ipapi: ${riskIpapi.text}`, col: riskIpapi.col, icon: riskIpapi.col === C_SUB ? 'circle.dashed' : 'checkmark.circle.fill' },
+    { text: 'IP2Location: 未检测', col: C_SUB, icon: 'circle.dashed' },
+    { text: 'DB-IP: 未检测', col: C_SUB, icon: 'circle.dashed' },
+    { text: 'ipregistry: 未检测', col: C_SUB, icon: 'circle.dashed' }
+  ];
+
   const unlockRight = {
-    type: 'stack', direction: 'column', gap: 2,
+    type: 'stack', direction: 'column', gap: 2, flex: 1,
     children: evidenceList.map(EvidenceRow)
   };
 
   return {
     type: 'widget', padding: WIDGET_PADDING, gap: 3, backgroundColor: BG_COLOR,
     children: [
-      // Header
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
         children: [
@@ -371,16 +470,9 @@ export default async function(ctx) {
           }
         ]
       },
-      // 本地 / 落地信息
       { type: 'stack', direction: 'row', gap: COL_GAP, children: [leftColumn, rightColumn] },
-      // 分隔线
       { type: 'stack', height: 0.5, backgroundColor: { light: 'rgba(0,0,0,0.08)', dark: 'rgba(255,255,255,0.12)' } },
-      // 底部 (省略左侧解锁代码以展示结构，右侧为重构后的独立证据渲染)
-      { type: 'stack', direction: 'row', gap: COL_GAP, children: [
-          { type: 'stack', direction: 'column', flex: 1, children: [/* 填充原有解锁函数调用结果 */] }, 
-          unlockRight
-        ]
-      }
+      { type: 'stack', direction: 'row', gap: COL_GAP, children: [unlockLeft, unlockRight] }
     ]
   };
 }
