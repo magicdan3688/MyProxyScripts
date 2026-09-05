@@ -223,14 +223,16 @@ return "Cross";
 }
 }
 
+// =========================
+// 【修改点】不再把运营商写死归类为中国三大/四大运营商。
+// 直接使用接口返回的原始运营商名称（清理掉 ASN 编号前缀，比如 "AS9605 " 这种），
+// 这样无论是日本的 SoftBank / Rakuten Mobile，还是出差时在其他国家遇到的
+// 任意运营商，都会如实显示真实名称，不会被误判成中国的运营商。
+// =========================
 const fmtISP = (isp) => {
 if (!isp) return "未知";
-const s = String(isp).toLowerCase();
-if (/移动|mobile|cmcc/i.test(s)) return "中国移动";
-if (/电信|telecom|chinanet/i.test(s)) return "中国电信";
-if (/联通|unicom/i.test(s)) return "中国联通";
-if (/广电|broadcast|cbn/i.test(s)) return "中国广电";
-return isp;
+const cleaned = String(isp).replace(/^AS\d+\s*/i, "").trim();
+return cleaned || "未知";
 };
 
 const getFlagEmoji = (country) => {
@@ -291,8 +293,7 @@ if (bodyInfo?.ip) {
 lIp = bodyInfo.ip;
 const country = getCName(bodyInfo.country || "");
 lLoc = `${getFlagEmoji(country)} ${country} ${bodyInfo.city || ""}`.trim();
-let org = bodyInfo.org || "";
-lIsp = fmtISP(org.replace(/AS\d+\s/, "")); // 去除国外的 ASN 前缀编号
+lIsp = fmtISP(bodyInfo.org || "");
 }
 } catch (e) {}
 }
