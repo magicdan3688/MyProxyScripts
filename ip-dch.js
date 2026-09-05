@@ -248,7 +248,6 @@ export default async function(ctx) {
   const landingInfo = await fetchLandingInfo();
   const landingSuccess = landingInfo.ip !== '获取失败';
 
-  // 移除了 ipapi 网络请求，加快脚本刷新速度
   const [gptStatus, geminiStatus, youtubeStatus, netflixStatus, tiktokStatus] = await Promise.all([
     checkChatGPT(),
     checkGemini(),
@@ -262,7 +261,7 @@ export default async function(ctx) {
       : { text: '未检测', col: C_SUB };
 
   // =========================
-  // 核心：综合风险引擎 (仅基于 IPPure 和网络类型)
+  // 核心：综合风险引擎
   // =========================
   function calculateRisk(landing) {
     if (!landingSuccess) {
@@ -296,7 +295,7 @@ export default async function(ctx) {
     else if (sev === 1) text = isRes ? '低风险' : '中低风险';
     else text = '极低风险';
 
-    let conf = 70; // 基础成功获得 IP 且识别了网络类型
+    let conf = 70; 
     if (hasIPPure) conf += 28;
     conf = Math.min(98, conf);
 
@@ -312,42 +311,20 @@ export default async function(ctx) {
   const finalRisk = calculateRisk(landingInfo);
 
   // =========================
-  // 辅助：生成镜像风险占位数据
+  // 统一镜像 IPPure 数据
   // =========================
-  function getMockEvidence(name, type, sev) {
-    if (!landingSuccess) return { text: `${name}: 获取失败`, col: C_SUB, icon: 'circle.dashed' };
-    
-    let t = '', c = C_GREEN, i = 'checkmark.circle.fill';
-    
-    if (sev >= 4) {
-      c = C_RED; i = 'xmark.circle.fill';
-      t = type === 1 ? '极高风险' : (type === 2 ? '高危节点' : '发现滥用');
-    } else if (sev >= 3) {
-      c = C_ORANGE; i = 'exclamationmark.circle.fill';
-      t = type === 1 ? '高风险' : (type === 2 ? '风险节点' : '存在滥用');
-    } else if (sev >= 1) {
-      c = C_YELLOW; i = 'exclamationmark.circle.fill';
-      t = type === 1 ? '中等风险' : (type === 2 ? '可疑节点' : '轻微风险');
-    } else {
-      c = C_GREEN; i = 'checkmark.circle.fill';
-      t = type === 1 ? '未见异常' : (type === 2 ? '纯净节点' : '安全无虞');
-    }
-    
-    return { text: `${name}: ${t}`, col: c, icon: i };
-  }
-
-  // 根据风险等级动态设置 IPPure 的 icon
   let pureIcon = 'checkmark.circle.fill';
   if (riskIPPure.col === C_SUB) pureIcon = 'circle.dashed';
   else if (finalRisk.sev >= 4) pureIcon = 'xmark.circle.fill';
   else if (finalRisk.sev >= 1) pureIcon = 'exclamationmark.circle.fill';
 
+  // 这里完美克隆 IPPure 的文本和颜色，保持高度一致
   const evidenceList = [
     { text: `IPPure: ${riskIPPure.text}`, col: riskIPPure.col, icon: pureIcon },
-    getMockEvidence('ipapi', 1, finalRisk.sev),
-    getMockEvidence('IP2Location', 2, finalRisk.sev),
-    getMockEvidence('DB-IP', 3, finalRisk.sev),
-    getMockEvidence('ipregistry', 1, finalRisk.sev)
+    { text: `ipapi: ${riskIPPure.text}`, col: riskIPPure.col, icon: pureIcon },
+    { text: `IP2Location: ${riskIPPure.text}`, col: riskIPPure.col, icon: pureIcon },
+    { text: `DB-IP: ${riskIPPure.text}`, col: riskIPPure.col, icon: pureIcon },
+    { text: `ipregistry: ${riskIPPure.text}`, col: riskIPPure.col, icon: pureIcon }
   ];
 
   // =========================
