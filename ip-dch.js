@@ -98,7 +98,7 @@ export default async function(ctx) {
   }
 
   // =========================
-  // 本地出口 (永远 DIRECT)
+  // 本地出口
   // =========================
   async function fetchLocalInfo() {
     const candidates = [
@@ -301,7 +301,7 @@ export default async function(ctx) {
       : { text: '未检测', col: C_SUB };
 
   // =========================
-  // 核心：综合风险引擎 (calculateRisk)
+  // 核心：综合风险引擎
   // =========================
   function calculateRisk(landing, ippureRes, ipapiRes) {
     if (!landingSuccess) {
@@ -355,10 +355,16 @@ export default async function(ctx) {
   const finalRisk = calculateRisk(landingInfo, riskIPPure, riskIpapi);
 
   // =========================
-  // UI 渲染辅助
+  // UI 渲染参数与辅助函数
   // =========================
   const SMALL_FONT = 10;
   const SMALL_ICON = 12;
+  const HEADER_GAP = 4;
+  const TOP_GAP = 3;
+  const INFO_GAP = 2.5;
+  const BOTTOM_GAP_LEFT = 2;
+  const BOTTOM_GAP_RIGHT = 2;
+  const COL_GAP = 12;
 
   function smallInfoRow(iconName, label, value, valueCol = C_MAIN) {
     return {
@@ -403,16 +409,15 @@ export default async function(ctx) {
   }
 
   // =========================
-  // 组装最终 Widget
+  // 组装 UI 模块 (严格遵守原版 Flex 布局)
   // =========================
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const isLarge = widgetFamily === 'systemLarge';
   const WIDGET_PADDING = isLarge ? [10, 12] : [8, 10];
-  const COL_GAP = 12;
 
   const leftColumn = {
-    type: 'stack', direction: 'column', gap: 2.5, flex: 1,
+    type: 'stack', direction: 'column', gap: INFO_GAP, flex: 1, // 原版自带 flex: 1
     children: [
       smallInfoRow('house.fill', '本地IP：', localInfo.ip, C_GREEN),
       smallInfoRow('mappin.and.ellipse', '本地位置：', localInfo.loc),
@@ -421,7 +426,7 @@ export default async function(ctx) {
   };
 
   const rightColumn = {
-    type: 'stack', direction: 'column', gap: 2.5, flex: 1,
+    type: 'stack', direction: 'column', gap: INFO_GAP, flex: 1, // 原版自带 flex: 1
     children: [
       smallInfoRow('network', '落地IP：', landingInfo.ip, landingSuccess ? C_GREEN : C_RED),
       smallInfoRow('map.fill', '落地位置：', landingInfo.loc, landingSuccess ? C_MAIN : C_RED),
@@ -429,8 +434,9 @@ export default async function(ctx) {
     ]
   };
 
+  // 注意：原版的 unlockLeft 和 unlockRight 是没有 flex: 1 的
   const unlockLeft = {
-    type: 'stack', direction: 'column', gap: 2, flex: 1,
+    type: 'stack', direction: 'column', gap: BOTTOM_GAP_LEFT,
     children: [
       UnlockRow('GPT', gptStatus),
       UnlockRow('Gemini', geminiStatus),
@@ -449,15 +455,26 @@ export default async function(ctx) {
   ];
 
   const unlockRight = {
-    type: 'stack', direction: 'column', gap: 2, flex: 1,
+    type: 'stack', direction: 'column', gap: BOTTOM_GAP_RIGHT,
     children: evidenceList.map(EvidenceRow)
   };
 
+  const unlockSection = {
+    type: 'stack', direction: 'row', gap: COL_GAP,
+    children: [
+      unlockLeft,
+      unlockRight
+    ]
+  };
+
+  // =========================
+  // 返回 Widget
+  // =========================
   return {
-    type: 'widget', padding: WIDGET_PADDING, gap: 3, backgroundColor: BG_COLOR,
+    type: 'widget', padding: WIDGET_PADDING, gap: TOP_GAP, backgroundColor: BG_COLOR,
     children: [
       {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
+        type: 'stack', direction: 'row', alignItems: 'center', gap: HEADER_GAP,
         children: [
           { type: 'text', text: `数据中心 (${isDirectPolicy ? 'DIRECT' : policy})`, font: { size: 13, weight: 'heavy' }, textColor: C_TITLE, flex: 1 },
           { type: 'image', src: `sf-symbol:${finalRisk.icon}`, color: finalRisk.col, width: 12, height: 12 },
@@ -472,7 +489,7 @@ export default async function(ctx) {
       },
       { type: 'stack', direction: 'row', gap: COL_GAP, children: [leftColumn, rightColumn] },
       { type: 'stack', height: 0.5, backgroundColor: { light: 'rgba(0,0,0,0.08)', dark: 'rgba(255,255,255,0.12)' } },
-      { type: 'stack', direction: 'row', gap: COL_GAP, children: [unlockLeft, unlockRight] }
+      unlockSection
     ]
   };
 }
