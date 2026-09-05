@@ -2050,21 +2050,22 @@ function normalizeCarrierName(value) {
 
   if (!raw) return "";
 
+  // 【修改点】不再对全球运营商名称做归类猜测。
+  // 之前用 "mobile" / "telecom" / "unicom" / "broadnet" 这类通用英文单词做匹配，
+  // 会把国外运营商（比如 "Rakuten Mobile, Inc."）误判成中国运营商。
+  // 现在只保留明确、无歧义的中国运营商关键字（中文名 / 官方缩写），
+  // 其余一律原样返回接口/系统提供的真实运营商名称，方便出差时识别当地实际运营商。
   if (
     raw.includes("中国移动") ||
     lower.includes("china mobile") ||
-    lower.includes("cmcc") ||
-    lower.includes("cmnet") ||
-    lower.includes("cmi")
+    lower.includes("cmcc")
   ) {
     return "中国移动";
   }
 
   if (
     raw.includes("中国联通") ||
-    lower.includes("china unicom") ||
-    lower.includes("unicom") ||
-    lower.includes("cucc")
+    lower.includes("china unicom")
   ) {
     return "中国联通";
   }
@@ -2072,19 +2073,14 @@ function normalizeCarrierName(value) {
   if (
     raw.includes("中国电信") ||
     lower.includes("china telecom") ||
-    lower.includes("chinanet") ||
-    lower.includes("telecom") ||
-    lower.includes("ctc")
+    lower.includes("chinanet")
   ) {
     return "中国电信";
   }
 
   if (
     raw.includes("中国广电") ||
-    lower.includes("china broadnet") ||
-    lower.includes("cbn") ||
-    lower.includes("broadnet") ||
-    lower.includes("broadcasting network")
+    lower.includes("china broadnet")
   ) {
     return "中国广电";
   }
