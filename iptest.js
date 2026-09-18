@@ -581,14 +581,16 @@ export default async function (ctx) {
           Date.now()
       ),
       getJSON("https://ipwho.is/?lang=zh-CN&_=" + Date.now()),
-      getJSON("https://ipinfo.io/json?_=" + Date.now())
+      getJSON("https://ipinfo.io/json?_=" + Date.now()),
+      getJSON("https://ipapi.co/json/?_=" + Date.now())
     ]);
 
     const sourceNames = [
       "ipapi.is",
       "ip-api",
       "ipwho.is",
-      "ipinfo"
+      "ipinfo",
+      "ipapi.co"
     ];
 
     const candidates = [];
@@ -639,7 +641,8 @@ export default async function (ctx) {
           Date.now()
       ),
       getJSONDirect("https://ipwho.is/?lang=zh-CN&_=" + Date.now()),
-      getJSONDirect("https://api.ipapi.is/?_=" + Date.now())
+      getJSONDirect("https://api.ipapi.is/?_=" + Date.now()),
+      getJSONDirect("https://ipapi.co/json/?_=" + Date.now())
     ]);
 
     for (let index = 0; index < results.length; index += 1) {
@@ -3241,7 +3244,11 @@ function parseExitSource(data, sourceName) {
       getAt(data, "company.name"),
       getAt(data, "connection.isp"),
       getAt(data, "connection.org"),
+      getAt(data, "asn.org"),
       getAt(data, "asn.name"),
+      getAt(data, "asn.descr"),
+      typeof data.company === "string" ? data.company : "",
+      typeof data.asn === "string" ? data.asn : "",
       data.isp,
       data.org,
       data.organization,
@@ -3816,7 +3823,20 @@ function parseLocalExit(data, forceLocalMainland) {
     countryCode: isChina ? "CN" : countryCodeValue,
     region: region,
     city: city,
-    isp: clean(pick(data.isp, data.org, data.organization)),
+    isp: clean(
+      pick(
+        getAt(data, "company.name"),
+        getAt(data, "connection.isp"),
+        getAt(data, "connection.org"),
+        getAt(data, "asn.org"),
+        getAt(data, "asn.name"),
+        typeof data.company === "string" ? data.company : "",
+        typeof data.asn === "string" ? data.asn : "",
+        data.isp,
+        data.org,
+        data.organization
+      )
+    ),
     org: clean(data.org),
     asname: clean(data.asname),
     as: clean(data.as),
