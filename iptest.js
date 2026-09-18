@@ -34,10 +34,12 @@ export default async function (ctx) {
   const FORCE_PROTOCOL = clean(env.XY);
 
   const TIMEOUT = 4500;
+  const IPPURE_TIMEOUT = 5500;
   const POLICY_PROBE_TIMEOUT = 1800;
   const POLICY_PROBE_BATCH_SIZE = 6;
   const REFRESH_MINUTES = 15;
   const FORCE_LOCAL_MAINLAND = false;
+  const IPPURE_URL = "https://my.ippure.com/v1/info";
 
   const servicePolicyCache = {};
   const policyProbeCache = {};
@@ -124,7 +126,8 @@ export default async function (ctx) {
     ? device.dnsServers.filter(Boolean)
     : [];
 
-  let networkName = getLocalNetworkName(device);
+  // 不显示 Wi-Fi SSID；本地网络统一显示实际公网运营商/ISP。
+  let networkName = "";
 
   const localIP =
     clean(
@@ -335,39 +338,65 @@ export default async function (ctx) {
   }
 
   async function getServiceStatus(url, servicePolicy) {
-    const attemptTimeouts = [TIMEOUT, TIMEOUT + 2500];
+    const attemptTimeouts = [TIMEOUT, TIMEOUT + 3500];
+    const urls = serviceProbeURLs(url);
     let last = { ok: false, status: 0, ms: 0 };
 
-    for (let index = 0; index < attemptTimeouts.length; index += 1) {
-      const startedAt = Date.now();
+    for (let urlIndex = 0; urlIndex < urls.length; urlIndex += 1) {
+      const probeURL = urls[urlIndex];
 
-      try {
-        const response = await ctx.http.get(
-          url,
-          serviceRequestOptions(servicePolicy, {
-            timeout: attemptTimeouts[index]
-          })
-        );
+      for (let index = 0; index < attemptTimeouts.length; index += 1) {
+        const startedAt = Date.now();
 
-        last = {
-          ok: response.status >= 200 && response.status < 500,
-          status: response.status,
-          ms: Math.max(1, Date.now() - startedAt)
-        };
-      } catch (_) {
-        last = {
-          ok: false,
-          status: 0,
-          ms: Math.max(1, Date.now() - startedAt)
-        };
-      }
+        try {
+          const response = await ctx.http.get(
+            probeURL,
+            serviceRequestOptions(servicePolicy, {
+              timeout: attemptTimeouts[index],
+              headers: {
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache"
+              }
+            })
+          );
 
-      if (last.ok) {
-        return last;
+          last = {
+            ok: response.status >= 200 && response.status < 400,
+            status: response.status,
+            ms: Math.max(1, Date.now() - startedAt)
+          };
+        } catch (_) {
+          last = {
+            ok: false,
+            status: 0,
+            ms: Math.max(1, Date.now() - startedAt)
+          };
+        }
+
+        if (last.ok) {
+          return last;
+        }
       }
     }
 
     return last;
+  }
+
+  function serviceProbeURLs(url) {
+    const raw = clean(url);
+
+    if (!raw.includes("gemini.google.com")) {
+      return [raw];
+    }
+
+    return dedupeCandidates([
+      raw,
+      "https://gemini.google.com/app",
+      "https://gemini.google.com/u/0/app",
+      "https://gemini.google.com/"
+    ]);
   }
 
   async function getPolicyExit(policy) {
@@ -376,6 +405,19 @@ export default async function (ctx) {
 
     if (!policyExitCache[key]) {
       policyExitCache[key] = (async function () {
+        const ippure = await getIPPure(targetPolicy, false);
+
+        if (ippure && ippure.countryCode) {
+          return {
+            ip: ippure.ip,
+            country: ippure.country,
+            countryCode: ippure.countryCode,
+            city: ippure.city,
+            region: ippure.region,
+            label: flag(ippure.countryCode) + " " + ippure.countryCode
+          };
+        }
+
         const urls = [
           "http://ip-api.com/json/?lang=zh-CN&fields=status,message,query,country,countryCode,regionName,city,isp,org,as,asname&_=" + Date.now(),
           "https://ipwho.is/?lang=zh-CN&_=" + Date.now(),
@@ -586,6 +628,188 @@ export default async function (ctx) {
     return map;
   }
 
+  async function getIPPure(policy, direct) {
+    const options = direct
+      ? directRequestOptions({ timeout: IPPURE_TIMEOUT })
+      : serviceRequestOptions(clean(policy), { timeout: IPPURE_TIMEOUT });
+
+    options.headers = Object.assign({}, options.headers || {}, {
+      Accept: "application/json,text/plain,*/*",
+      "Cache-Control": "no-cache"
+    });
+
+    try {
+      const response = await ctx.http.get(
+        IPPURE_URL + "?_=" + Date.now() + randomAlphaNum(5),
+        options
+      );
+
+      if (response.status < 200 || response.status >= 400) {
+        return null;
+      }
+
+      return parseIPPure(await response.json());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function parseIPPure(data) {
+    if (!data || typeof data !== "object") {
+      return null;
+    }
+
+    const ip = clean(
+      pick(
+        data.ip,
+        data.query,
+        data.ipAddress,
+        data.ip_address
+      )
+    );
+
+    if (!ip) {
+      return null;
+    }
+
+    const fraudScore = numberOrNull(
+      pick(
+        data.fraudScore,
+        data.fraud_score,
+        data.riskScore,
+        data.risk_score,
+        data.risk
+      )
+    );
+
+    const residentialRaw = pick(
+      data.isResidential,
+      data.is_residential,
+      data.residential
+    );
+
+    const datacenterRaw = pick(
+      data.isDataCenter,
+      data.isDatacenter,
+      data.is_datacenter,
+      data.dataCenter,
+      data.datacenter,
+      data.isHosting,
+      data.is_hosting
+    );
+
+    const nativeRaw = pick(
+      data.isNative,
+      data.is_native,
+      data.nativeIP,
+      data.native_ip,
+      data.native
+    );
+
+    const broadcastRaw = pick(
+      data.isBroadcast,
+      data.is_broadcast,
+      data.broadcast
+    );
+
+    const mobileRaw = pick(
+      data.isMobile,
+      data.is_mobile,
+      data.mobile
+    );
+
+    const proxyRaw = pick(
+      data.isProxy,
+      data.is_proxy,
+      data.proxy
+    );
+
+    const vpnRaw = pick(
+      data.isVPN,
+      data.is_vpn,
+      data.vpn
+    );
+
+    const torRaw = pick(
+      data.isTor,
+      data.is_tor,
+      data.tor
+    );
+
+    const abuserRaw = pick(
+      data.isAbuser,
+      data.is_abuser,
+      data.abuser
+    );
+
+    const country = clean(pick(data.country, data.country_name));
+    const countryCodeValue = countryCode(
+      pick(data.countryCode, data.country_code)
+    );
+    const region = clean(pick(data.region, data.regionName));
+    const city = clean(data.city);
+        const asOrganization = clean(
+      pick(
+        data.asOrganization,
+        data.as_organization,
+        data.organization,
+        data.org,
+        data.isp
+      )
+    );
+
+    const flags = {
+      ippure: true,
+      datacenter: truthy(datacenterRaw),
+      hosting: truthy(datacenterRaw),
+      cloud: false,
+      proxy: truthy(proxyRaw),
+      vpn: truthy(vpnRaw),
+      tor: truthy(torRaw),
+      abuser: truthy(abuserRaw),
+      mobile: truthy(mobileRaw),
+      residential: truthy(residentialRaw),
+      native: truthy(nativeRaw),
+      broadcast: truthy(broadcastRaw),
+      risk: fraudScore,
+      fraudScore: fraudScore
+    };
+
+    if (flags.residential) {
+      flags.datacenter = false;
+      flags.hosting = false;
+      flags.cloud = false;
+    }
+
+    return {
+      source: "ippure",
+      ip: ip,
+      city: city || "",
+      region: region || "",
+      country: country || "",
+      countryCode: countryCodeValue,
+      isp: asOrganization || "",
+      org: asOrganization || "",
+      asname: "",
+      as: data.asn ? "AS" + String(data.asn) : "",
+      cloudProvider: "",
+      kind: classifyExitKind(flags),
+      flags: flags,
+      ippure: {
+        fraudScore: fraudScore,
+        isResidential: typeof residentialRaw === "boolean" ? residentialRaw : null,
+        isDataCenter: typeof datacenterRaw === "boolean" ? datacenterRaw : null,
+        isNative: typeof nativeRaw === "boolean" ? nativeRaw : null,
+        isBroadcast: typeof broadcastRaw === "boolean" ? broadcastRaw : null,
+        isMobile: typeof mobileRaw === "boolean" ? mobileRaw : null,
+        isProxy: typeof proxyRaw === "boolean" ? proxyRaw : null,
+        isVPN: typeof vpnRaw === "boolean" ? vpnRaw : null,
+        isTor: typeof torRaw === "boolean" ? torRaw : null,
+        isAbuser: typeof abuserRaw === "boolean" ? abuserRaw : null
+      }
+    };
+  }
+
   async function getExit() {
     const baseResults = await Promise.all([
       getJSON("https://api.ipapi.is/?_=" + Date.now()),
@@ -595,7 +819,8 @@ export default async function (ctx) {
       ),
       getJSON("https://ipwho.is/?lang=zh-CN&_=" + Date.now()),
       getJSON("https://ipinfo.io/json?_=" + Date.now()),
-      getJSON("https://ipapi.co/json/?_=" + Date.now())
+      getJSON("https://ipapi.co/json/?_=" + Date.now()),
+      getIPPure(POLICY, false)
     ]);
 
     const sourceNames = [
@@ -603,12 +828,13 @@ export default async function (ctx) {
       "ip-api",
       "ipwho.is",
       "ipinfo",
-      "ipapi.co"
+      "ipapi.co",
+      "ippure"
     ];
 
     const candidates = [];
 
-    for (let index = 0; index < baseResults.length; index += 1) {
+    for (let index = 0; index < baseResults.length - 1; index += 1) {
       if (!baseResults[index].ok || !baseResults[index].data) {
         continue;
       }
@@ -621,6 +847,10 @@ export default async function (ctx) {
       if (parsed.ip) {
         candidates.push(parsed);
       }
+    }
+
+    if (baseResults[5] && baseResults[5].source === "ippure") {
+      candidates.push(baseResults[5]);
     }
 
     let merged = mergeExitSources(candidates);
@@ -655,10 +885,13 @@ export default async function (ctx) {
       ),
       getJSONDirect("https://ipwho.is/?lang=zh-CN&_=" + Date.now()),
       getJSONDirect("https://api.ipapi.is/?_=" + Date.now()),
-      getJSONDirect("https://ipapi.co/json/?_=" + Date.now())
+      getJSONDirect("https://ipapi.co/json/?_=" + Date.now()),
+      getIPPure("", true)
     ]);
 
-    for (let index = 0; index < results.length; index += 1) {
+    const ippure = results[4];
+
+    for (let index = 0; index < 4; index += 1) {
       const parsed = parseLocalExit(
         results[index].data,
         FORCE_LOCAL_MAINLAND
@@ -680,8 +913,29 @@ export default async function (ctx) {
           };
         }
 
+        if (ippure && ippure.ip === parsed.ip) {
+          return mergeLocalExitWithIPPure(parsed, ippure);
+        }
+
         return parsed;
       }
+    }
+
+    if (ippure && ippure.ip) {
+      return mergeLocalExitWithIPPure(
+        {
+          ip: ippure.ip,
+          city: ippure.city,
+          region: ippure.region,
+          country: ippure.country,
+          countryCode: ippure.countryCode,
+          isp: ippure.isp,
+          org: ippure.org,
+          asname: ippure.asname,
+          as: ippure.as
+        },
+        ippure
+      );
     }
 
     return {
@@ -696,6 +950,36 @@ export default async function (ctx) {
       as: "",
       label: "未知地区"
     };
+  }
+
+  function mergeLocalExitWithIPPure(parsed, ippure) {
+    const local = Object.assign({}, parsed || {});
+    const source = ippure || {};
+
+    local.ip = source.ip || local.ip;
+    local.country = source.country || local.country;
+    local.countryCode = source.countryCode || local.countryCode;
+    local.region = source.region || local.region;
+    local.city = source.city || local.city;
+    local.isp = source.isp || local.isp;
+    local.org = source.org || local.org;
+    local.asname = source.asname || local.asname;
+    local.as = source.as || local.as;
+    local.ippure = source.ippure || {};
+    local.flags = source.flags || {};
+
+    if (local.countryCode === "CN" || clean(local.country).includes("中国")) {
+      local.label = mainlandAreaLabel(local.region, local.city);
+    } else {
+      local.label = formatLocalArea(
+        local.countryCode,
+        local.country,
+        local.region,
+        local.city
+      );
+    }
+
+    return local;
   }
 
   async function getDNSVerified() {
@@ -1113,6 +1397,10 @@ export default async function (ctx) {
     ])
   ]);
 
+  const cellularCarrier = getCellularCarrierName(device);
+
+  // 无论 Wi-Fi 还是蜂窝网络，都以真实 DIRECT 出口的 ISP/运营商为主。
+  // 只有 IP 数据库无法识别时，才回退到设备侧蜂窝运营商。
   const carrierByDirectISP =
     localExit.countryCode === "CN"
       ? carrierFromISP(
@@ -1120,20 +1408,13 @@ export default async function (ctx) {
             localExit.isp,
             localExit.org,
             localExit.asname,
-            localExit.as
+            localExit.as,
+            cellularCarrier
           ].join(" ")
         )
-      : cleanForeignCarrierName(
-          pick(localExit.isp, localExit.org, localExit.asname)
-        );
+      : foreignCarrierFromLocalExit(localExit, cellularCarrier);
 
-  if (!networkName && carrierByDirectISP) {
-    networkName = carrierByDirectISP;
-  }
-
-  if (!networkName) {
-    networkName = "移动数据";
-  }
+  networkName = carrierByDirectISP || cellularCarrier || "未知运营商";
 
   const dns = chooseDNSProvider(baseDNS, verifiedDNS);
   const dnsLabel = dnsTinyLabel(dns.short || dns.full);
@@ -1679,7 +1960,7 @@ export default async function (ctx) {
       clean(exit.cloudProvider) ||
       (
         exit.kind === "住宅 IP"
-          ? "原生住宅"
+          ? (exit.flags && exit.flags.native ? "原生住宅" : "住宅网络")
           : exit.kind === "移动网络"
             ? "移动出口"
             : exit.kind === "商业机房"
@@ -2276,7 +2557,6 @@ function palette() {
     perplexity: adaptive("#0B88A8", "#63D9FF")
   };
 }
-
 function servicePolicyCandidates(serviceId, category) {
   const id = clean(serviceId).toLowerCase();
   const type = clean(category).toLowerCase();
@@ -2719,6 +2999,81 @@ function dedupeCandidates(values) {
   });
 
   return output;
+}
+
+function isGenericCellularName(value) {
+  const text = clean(value).toLowerCase();
+
+  return (
+    !text ||
+    text === "移动数据" ||
+    text === "蜂窝数据" ||
+    text === "蜂窝网络" ||
+    text === "cellular" ||
+    text === "mobile data" ||
+    text === "mobile network" ||
+    text === "unknown"
+  );
+}
+
+function getCellularCarrierName(device) {
+  const cellular = (device && device.cellular) || {};
+
+  return normalizeCarrierName(
+    firstMeaningful(
+      cellular.carrier,
+      cellular.carrierName,
+      cellular.operator,
+      cellular.operatorName,
+      cellular.network,
+      cellular.networkName,
+      cellular.provider,
+      cellular.serviceProvider,
+      getAt(device, "carrier"),
+      getAt(device, "carrierName"),
+      getAt(device, "operator"),
+      getAt(device, "operatorName"),
+      getAt(device, "network.carrier"),
+      getAt(device, "network.carrierName"),
+      getAt(device, "network.operator"),
+      getAt(device, "telephony.carrier"),
+      getAt(device, "telephony.carrierName"),
+      getAt(device, "cellularProvider")
+    )
+  );
+}
+
+function isChinaCarrierName(value) {
+  const text = clean(value).toLowerCase();
+
+  return (
+    text.includes("中国移动") ||
+    text.includes("中国联通") ||
+    text.includes("中国电信") ||
+    text.includes("中国广电") ||
+    /\bchina\s+mobile\b/.test(text) ||
+    /\bchina\s+unicom\b/.test(text) ||
+    /\bchina\s+telecom\b/.test(text) ||
+    /\bchina\s+broadnet\b/.test(text) ||
+    /\bcmcc\b/.test(text) ||
+    /\bcucc\b/.test(text)
+  );
+}
+
+function foreignCarrierFromLocalExit(localExit, cellularCarrier) {
+  const candidates = [
+    localExit && localExit.isp,
+    localExit && localExit.org,
+    localExit && localExit.asname,
+    localExit && localExit.as,
+    cellularCarrier
+  ]
+    .map(cleanForeignCarrierName)
+    .filter(function (value) {
+      return value && !isChinaCarrierName(value);
+    });
+
+  return candidates[0] || "";
 }
 
 function getLocalNetworkName(device) {
@@ -3392,7 +3747,7 @@ function parseExitSource(data, sourceName) {
   );
 
   return {
-    source: sourceName || "",
+        source: sourceName || "",
     ip: ip,
     city: clean(
       pick(
@@ -3550,12 +3905,28 @@ function mergeExitSources(sources) {
     };
   }
 
+  const ippure =
+    valid.find(function (item) {
+      return item.source === "ippure";
+    }) ||
+    valid.find(function (item) {
+      return item.flags && item.flags.ippure && item.flags.ippureAssessment;
+    }) ||
+    null;
+
+  const ippureAssessment =
+    (ippure && ippure.ippure) ||
+    (ippure && ippure.flags && ippure.flags.ippureAssessment) ||
+    null;
+
   const primaryIP =
+    (ippure && ippure.ip) ||
     mostCommon(
       valid.map(function (item) {
         return item.ip;
       })
-    ) || valid[0].ip;
+    ) ||
+    valid[0].ip;
 
   const sameIP = valid.filter(function (item) {
     return item.ip === primaryIP;
@@ -3573,7 +3944,9 @@ function mergeExitSources(sources) {
     })
     .join(" ");
 
-  const cloud = cloudProviderFromText(allText);
+  const cloud = ippureAssessment && ippureAssessment.isResidential === true
+    ? { hit: false, name: "" }
+    : cloudProviderFromText(allText);
 
   const evidence = {
     sourceCount: sameIP.length,
@@ -3587,7 +3960,12 @@ function mergeExitSources(sources) {
     mobileCount: 0,
     residentialCount: 0,
     riskMax: null,
-    riskCount: 0
+    riskCount: 0,
+    ippure: Boolean(ippure),
+    ippureFraudScore:
+      ippureAssessment && Number.isFinite(Number(ippureAssessment.fraudScore))
+        ? Number(ippureAssessment.fraudScore)
+        : null
   };
 
   sameIP.forEach(function (item) {
@@ -3622,29 +4000,52 @@ function mergeExitSources(sources) {
     abuser: evidence.abuserCount > 0,
     mobile: evidence.mobileCount > 0,
     residential: evidence.residentialCount > 0,
+    native: Boolean(ippureAssessment && ippureAssessment.isNative === true),
+    broadcast: Boolean(ippureAssessment && ippureAssessment.isBroadcast === true),
     risk: evidence.riskMax,
-    evidence: evidence
+    evidence: evidence,
+    ippure: Boolean(ippure),
+    ippureAssessment: ippureAssessment
   };
 
-  if (cloud.hit) {
-    mergedFlags.datacenter = true;
-    mergedFlags.hosting = true;
-    mergedFlags.cloud = true;
-    mergedFlags.residential = false;
+  if (ippureAssessment) {
+    const meta = ippureAssessment;
+
+    if (meta.isResidential === true) {
+      mergedFlags.residential = true;
+      mergedFlags.datacenter = false;
+      mergedFlags.hosting = false;
+      mergedFlags.cloud = false;
+    } else if (meta.isDataCenter === true) {
+      mergedFlags.residential = false;
+      mergedFlags.datacenter = true;
+      mergedFlags.hosting = true;
+      mergedFlags.cloud = false;
+    }
+
+    if (meta.isMobile === true) {
+      mergedFlags.mobile = true;
+    }
   }
 
   const kind = classifyExitKind(mergedFlags);
 
   return {
     ip: primaryIP,
-    city: bestField(sameIP, "city") || "未知城市",
-    region: bestField(sameIP, "region"),
-    country: bestField(sameIP, "country"),
-    countryCode: countryCode(bestField(sameIP, "countryCode")),
-    isp: cloud.name || bestField(sameIP, "isp") || "未知组织",
+    city: (ippure && ippure.city) || bestField(sameIP, "city") || "未知城市",
+    region: (ippure && ippure.region) || bestField(sameIP, "region"),
+    country: (ippure && ippure.country) || bestField(sameIP, "country"),
+    countryCode:
+      (ippure && ippure.countryCode) ||
+      countryCode(bestField(sameIP, "countryCode")),
+    isp:
+      (ippure && ippure.isp) ||
+      bestField(sameIP, "isp") ||
+      "未知组织",
     cloudProvider: cloud.name,
     kind: kind,
     flags: mergedFlags,
+    ippure: ippureAssessment,
     sources: sameIP
       .map(function (item) {
         return item.source;
@@ -4095,8 +4496,7 @@ function chooseDNSProvider(baseDNS, verifiedDNS) {
     asname: "",
     as: ""
   };
-
-  const verifiedProvider = providerFromText(
+    const verifiedProvider = providerFromText(
     [
       verified.full,
       verified.short,
@@ -4234,6 +4634,23 @@ function purityScore(exit) {
   const evidence = flags.evidence || {};
   const kind = clean(exit && exit.kind);
 
+  const ippureScore =
+    flags.ippureAssessment &&
+    Number.isFinite(Number(flags.ippureAssessment.fraudScore))
+      ? Math.max(
+          0,
+          Math.min(100, Math.round(100 - Number(flags.ippureAssessment.fraudScore)))
+        )
+      : null;
+
+  if (ippureScore !== null) {
+    return {
+      score: ippureScore,
+      risk: 100 - ippureScore,
+      evidence: evidence
+    };
+  }
+
   let score;
 
   if (kind === "住宅 IP") {
@@ -4253,16 +4670,10 @@ function purityScore(exit) {
   const torCount = Number(evidence.torCount || 0);
   const abuserCount = Number(evidence.abuserCount || 0);
   const riskValue = Number(flags.risk);
-
   const proxyVpnEvidenceCount = proxyCount + vpnCount;
 
-  if (torCount > 0 || flags.tor) {
-    score -= 55;
-  }
-
-  if (abuserCount > 0 || flags.abuser) {
-    score -= 35;
-  }
+  if (torCount > 0 || flags.tor) score -= 55;
+  if (abuserCount > 0 || flags.abuser) score -= 35;
 
   if (proxyVpnEvidenceCount >= 2) {
     score -= 30;
@@ -4271,15 +4682,10 @@ function purityScore(exit) {
   }
 
   if (Number.isFinite(riskValue)) {
-    if (riskValue >= 80) {
-      score -= 25;
-    } else if (riskValue >= 70) {
-      score -= 20;
-    } else if (riskValue >= 40) {
-      score -= 10;
-    } else if (riskValue >= 20) {
-      score -= 4;
-    }
+    if (riskValue >= 80) score -= 25;
+    else if (riskValue >= 70) score -= 20;
+    else if (riskValue >= 40) score -= 10;
+    else if (riskValue >= 20) score -= 4;
   }
 
   if (kind === "商业机房" || flags.datacenter || flags.hosting || flags.cloud) {
@@ -4319,8 +4725,31 @@ function riskLevel(exit, purity) {
   const flags = (exit && exit.flags) || {};
   const evidence = flags.evidence || {};
   const score = Number(purity && purity.score);
-  const riskValue = Number(flags.risk);
 
+  if (flags.ippureAssessment) {
+    const assessment = flags.ippureAssessment;
+    const ippureRisk = Number(assessment.fraudScore);
+    const hardBad =
+      assessment.isTor === true ||
+      assessment.isAbuser === true ||
+      assessment.isProxy === true ||
+      assessment.isVPN === true;
+
+    if (hardBad || ippureRisk >= 85 || score < 45) {
+      return "高风险";
+    }
+
+    if (
+      score < 75 ||
+      assessment.isDataCenter === true
+    ) {
+      return "中风险";
+    }
+
+    return "低风险";
+  }
+
+  const riskValue = Number(flags.risk);
   const proxyVpnEvidenceCount =
     Number(evidence.proxyCount || 0) +
     Number(evidence.vpnCount || 0);
