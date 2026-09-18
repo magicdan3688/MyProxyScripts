@@ -335,26 +335,39 @@ export default async function (ctx) {
   }
 
   async function getServiceStatus(url, servicePolicy) {
-    const startedAt = Date.now();
+    const attemptTimeouts = [TIMEOUT, TIMEOUT + 2500];
+    let last = { ok: false, status: 0, ms: 0 };
 
-    try {
-      const response = await ctx.http.get(
-        url,
-        serviceRequestOptions(servicePolicy)
-      );
+    for (let index = 0; index < attemptTimeouts.length; index += 1) {
+      const startedAt = Date.now();
 
-      return {
-        ok: response.status >= 200 && response.status < 500,
-        status: response.status,
-        ms: Math.max(1, Date.now() - startedAt)
-      };
-    } catch (_) {
-      return {
-        ok: false,
-        status: 0,
-        ms: Math.max(1, Date.now() - startedAt)
-      };
+      try {
+        const response = await ctx.http.get(
+          url,
+          serviceRequestOptions(servicePolicy, {
+            timeout: attemptTimeouts[index]
+          })
+        );
+
+        last = {
+          ok: response.status >= 200 && response.status < 500,
+          status: response.status,
+          ms: Math.max(1, Date.now() - startedAt)
+        };
+      } catch (_) {
+        last = {
+          ok: false,
+          status: 0,
+          ms: Math.max(1, Date.now() - startedAt)
+        };
+      }
+
+      if (last.ok) {
+        return last;
+      }
     }
+
+    return last;
   }
 
   async function getPolicyExit(policy) {
