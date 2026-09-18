@@ -1390,7 +1390,7 @@ export default async function (ctx) {
     Promise.all([
       testService("chatgpt", "ChatGPT", "chatgpt", C.chatgpt, "https://chatgpt.com/", aiPolicyMap.chatgpt),
       testService("claude", "Claude", "claude", C.claude, "https://claude.ai/", aiPolicyMap.claude),
-      testService("gemini", "Gemini", "gemini", C.gemini, "https://gemini.google.com/", aiPolicyMap.gemini),
+      testService("gemini", "Gemini", "gemini", C.gemini, "https://chatgpt.com/", aiPolicyMap.gemini),
       testService("deepseek", "DeepSeek", "deepseek", C.deepseek, "https://chat.deepseek.com/", aiPolicyMap.deepseek),
       testService("grok", "Grok", "grok", C.grok, "https://grok.com/", aiPolicyMap.grok),
       testService("perplexity", "Perplexity", "perplexity", C.perplexity, "https://www.perplexity.ai/", aiPolicyMap.perplexity)
